@@ -1,0 +1,35 @@
+{
+  "name": "@6ducklearn/mcp",
+  "version": "0.1.0",
+  "description": "Public setup docs, smoke checks, and local connector package for the hosted 6DuckLearn MCP server.",
+  "type": "module",
+  "private": false,
+  "license": "Apache-2.0",
+  "workspaces": [
+    "packages/connector"
+  ],
+  "scripts": {
+    "build": "npm --workspace @6ducklearn/connector run build",
+    "test": "node --test packages/connector/test/*.test.mjs",
+    "pack:dry-run": "npm --workspace @6ducklearn/connector pack --dry-run",
+    "smoke:hosted": "node scripts/hosted-smoke.mjs",
+    "scan:secrets": "node scripts/secret-scan.mjs",
+    "validate": "npm run build && npm run test && npm run pack:dry-run && npm run smoke:hosted && npm run scan:secrets"
+  },
+  "keywords": [
+    "6ducklearn",
+    "mcp",
+    "model-context-protocol",
+    "codex",
+    "claude",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.5.3"
+  }
+}
+

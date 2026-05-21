@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "6ducklearn": {
+      "type": "http",
+      "url": "https://6ducklearn.com/mcp"
+    }
+  }
+}
+

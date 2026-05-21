@@ -1,0 +1,34 @@
+{
+  "name": "@6ducklearn/connector",
+  "version": "0.1.0",
+  "description": "Local runtime bridge for users connecting Codex, OpenClaw, or Hermes to the hosted 6DuckLearn Agent Console.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "6ducklearn-connector": "dist/index.js"
+  },
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "prepare": "tsc -p ./tsconfig.json",
+    "type-check": "tsc --noEmit -p ./tsconfig.json"
+  },
+  "keywords": [
+    "6ducklearn",
+    "agent",
+    "connector",
+    "codex",
+    "openclaw",
+    "hermes"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  }
+}
+
