@@ -1,8 +1,8 @@
 # 6DuckLearn MCP
 
-Official public setup docs and local connector package for the hosted 6DuckLearn MCP server.
+Official public setup docs, registry metadata, and local connector package for the hosted 6DuckLearn MCP server.
 
-The public MCP server name is `6ducklearn` and the hosted endpoint is:
+Use `6ducklearn` as the local client key in Codex or Claude Code. The official MCP Registry name is `com.6ducklearn/mcp`, and the hosted endpoint is:
 
 ```text
 https://6ducklearn.com/mcp
@@ -29,7 +29,8 @@ Then open the MCP tool picker in Claude Code and authorize 6DuckLearn when promp
 
 ## Hosted MCP Identity
 
-- server key: `6ducklearn`
+- local client key: `6ducklearn`
+- MCP Registry name: `com.6ducklearn/mcp`
 - title: `6DuckLearn MCP`
 - MCP URL: `https://6ducklearn.com/mcp`
 - OAuth discovery: `https://6ducklearn.com/.well-known/oauth-authorization-server`
@@ -58,9 +59,32 @@ node packages/connector/dist/index.js
 
 Most users should start from the hosted 6DuckLearn setup page rather than cloning this repository directly.
 
+## MCP Registry Publication
+
+The official registry manifest lives in [`server.json`](./server.json). It is a hosted-only listing because the canonical 6DuckLearn MCP server runs at `https://6ducklearn.com/mcp`; the local connector is a runtime bridge, not a standalone stdio MCP server package.
+
+Before publishing, validate the manifest and hosted endpoint:
+
+```bash
+npm run validate:registry
+npm run smoke:hosted
+```
+
+Publish with domain-based authentication so the registry name can stay under the 6DuckLearn domain namespace:
+
+```bash
+# After generating the DNS proof key and adding the apex TXT record:
+mcp-publisher login dns --domain 6ducklearn.com --private-key "$PRIVATE_KEY"
+mcp-publisher publish
+curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=com.6ducklearn/mcp"
+```
+
+The required DNS TXT proof must be placed at the apex `6ducklearn.com`, not under a selector subdomain. After the official MCP Registry lists `com.6ducklearn/mcp`, GitHub's MCP Registry should be able to discover it through the community registry sync.
+
 ## What Is Public Here
 
 - hosted MCP setup instructions
+- official MCP Registry manifest
 - sanitized client examples
 - local connector source and tests
 - live hosted endpoint smoke checks
@@ -81,7 +105,7 @@ npm install
 npm run validate
 ```
 
-Validation runs TypeScript build, connector tests, package dry-run, hosted MCP smoke checks, and a public-release secret scan.
+Validation runs TypeScript build, connector tests, package dry-run, MCP Registry manifest checks, hosted MCP smoke checks, and a public-release secret scan.
 
 ## Security
 
@@ -90,4 +114,3 @@ Report security issues privately. See [SECURITY.md](./SECURITY.md).
 ## License
 
 Code is licensed under Apache-2.0. Documentation examples are licensed under CC BY 4.0. See [TRADEMARK.md](./TRADEMARK.md) for 6DuckLearn brand usage.
-

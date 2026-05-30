@@ -1,0 +1,19 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "com.6ducklearn/mcp",
+  "title": "6DuckLearn MCP",
+  "description": "Connect agents to 6DuckLearn memory, approvals, and runtime control.",
+  "version": "0.1.0",
+  "websiteUrl": "https://6ducklearn.com",
+  "repository": {
+    "url": "https://github.com/kit18/6ducklearn-mcp",
+    "source": "github",
+    "id": "1245942240"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://6ducklearn.com/mcp"
+    }
+  ]
+}

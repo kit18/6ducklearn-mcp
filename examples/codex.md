@@ -13,5 +13,4 @@ Check registration:
 codex mcp get 6ducklearn
 ```
 
-The server name should be `6ducklearn`.
-
+The local Codex server key should be `6ducklearn`. The official MCP Registry name for the hosted server is `com.6ducklearn/mcp`.
