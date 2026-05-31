@@ -73,13 +73,13 @@ npm run smoke:hosted
 Publish with domain-based authentication so the registry name can stay under the 6DuckLearn domain namespace:
 
 ```bash
-# After generating the DNS proof key and adding the apex TXT record:
-mcp-publisher login dns --domain 6ducklearn.com --private-key "$PRIVATE_KEY"
+# After generating the proof key and serving /.well-known/mcp-registry-auth:
+mcp-publisher login http --domain 6ducklearn.com --algorithm ecdsap384 --private-key "$PRIVATE_KEY"
 mcp-publisher publish
 curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=com.6ducklearn/mcp"
 ```
 
-The required DNS TXT proof must be placed at the apex `6ducklearn.com`, not under a selector subdomain. After the official MCP Registry lists `com.6ducklearn/mcp`, GitHub's MCP Registry should be able to discover it through the community registry sync.
+The required HTTP proof must be served from `https://6ducklearn.com/.well-known/mcp-registry-auth`. After the official MCP Registry lists `com.6ducklearn/mcp`, request GitHub MCP Registry inclusion by emailing `partnerships@github.com` with the registry name, official registry URL, GitHub repository, website, hosted endpoint, and validation evidence. GitHub's MCP Registry is a separate curated surface, so listing there currently requires GitHub review rather than relying on automatic community registry sync.
 
 ## What Is Public Here
 

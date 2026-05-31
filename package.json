@@ -1,6 +1,6 @@
 {
   "name": "@6ducklearn/mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Public setup docs, smoke checks, and local connector package for the hosted 6DuckLearn MCP server.",
   "mcpName": "com.6ducklearn/mcp",
   "type": "module",

@@ -3,8 +3,17 @@
   "name": "com.6ducklearn/mcp",
   "title": "6DuckLearn MCP",
   "description": "Connect agents to 6DuckLearn memory, approvals, and runtime control.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "websiteUrl": "https://6ducklearn.com",
+  "icons": [
+    {
+      "src": "https://6ducklearn.com/apple-touch-icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "180x180"
+      ]
+    }
+  ],
   "repository": {
     "url": "https://github.com/kit18/6ducklearn-mcp",
     "source": "github",
