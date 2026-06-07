@@ -3,6 +3,12 @@
 Use the hosted 6DuckLearn MCP server:
 
 ```bash
+npx github:kit18/6ducklearn-mcp setup-codex
+```
+
+Manual fallback:
+
+```bash
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```

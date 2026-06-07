@@ -6,6 +6,9 @@
   "type": "module",
   "private": false,
   "license": "Apache-2.0",
+  "bin": {
+    "6ducklearn-mcp": "./scripts/6ducklearn-mcp.mjs"
+  },
   "workspaces": [
     "packages/connector"
   ],

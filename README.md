@@ -14,6 +14,16 @@ This repository is intentionally hosted-first. It does not contain the private 6
 
 ### Codex
 
+From GitHub:
+
+```bash
+npx github:kit18/6ducklearn-mcp setup-codex
+```
+
+This configures the hosted 6DuckLearn MCP server in local Codex and starts the OAuth login flow.
+
+Manual fallback:
+
 ```bash
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
@@ -27,6 +37,10 @@ claude mcp add --transport http 6ducklearn https://6ducklearn.com/mcp
 
 Then open the MCP tool picker in Claude Code and authorize 6DuckLearn when prompted.
 
+### npm Package Status
+
+The npm packages `@6ducklearn/mcp` and `@6ducklearn/connector` are not published yet. Until npm publication is available, use the GitHub `npx` command above for copy/paste setup.
+
 ## Hosted MCP Identity
 
 - local client key: `6ducklearn`
@@ -38,7 +52,7 @@ Then open the MCP tool picker in Claude Code and authorize 6DuckLearn when promp
 
 The hosted server uses OAuth scopes such as `mcp:read`, `mcp:write`, `runtime:connect`, `control:read`, and approval-related scopes. Write-capable and sensitive actions remain controlled by 6DuckLearn policy and user approval.
 
-## Local Connector
+## Advanced: Local Runtime Connector
 
 The connector is for users who want a local runtime bridge between 6DuckLearn and local agents such as Codex, OpenClaw, or Hermes. The preferred setup path is OAuth from the 6DuckLearn web app.
 

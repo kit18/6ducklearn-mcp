@@ -9,7 +9,11 @@ codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```
 
-Use this connector when you need 6DuckLearn to coordinate a local runtime such as Codex, OpenClaw, or Hermes.
+Use this connector only when you need 6DuckLearn to coordinate a local runtime such as Codex, OpenClaw, or Hermes. For normal hosted MCP setup from GitHub, run:
+
+```bash
+npx github:kit18/6ducklearn-mcp setup-codex
+```
 
 ## Build
 
