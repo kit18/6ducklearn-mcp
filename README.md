@@ -52,6 +52,14 @@ The npm packages `@6ducklearn/mcp` and `@6ducklearn/connector` are not published
 
 The hosted server uses OAuth scopes such as `mcp:read`, `mcp:write`, `runtime:connect`, `control:read`, and approval-related scopes. Write-capable and sensitive actions remain controlled by 6DuckLearn policy and user approval.
 
+## What Agents Can Do
+
+6DuckLearn MCP gives connected agents account-authorized workflows for research, organization, reminders, portfolio review, knowledge retrieval, canvas creation, and Skill Builder discovery.
+
+For the full public catalog, see [MCP tool use cases](./docs/tool-use-cases.md). The catalog describes each tool by practical use case and example prompt without exposing private schemas or backend implementation details.
+
+Finance-related capabilities are for research, organization, summaries, alerts, and user-authorized workflows. 6DuckLearn MCP is not an order-routing service or source of investment recommendations.
+
 ## Advanced: Local Runtime Connector
 
 The connector is for users who want a local runtime bridge between 6DuckLearn and local agents such as Codex, OpenClaw, or Hermes. The preferred setup path is OAuth from the 6DuckLearn web app.
