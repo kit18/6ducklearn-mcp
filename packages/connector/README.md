@@ -5,6 +5,7 @@ Local runtime bridge for users connecting a local agent runtime to the hosted 6D
 Use the hosted MCP server first when your client supports HTTP MCP with OAuth:
 
 ```bash
+codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```

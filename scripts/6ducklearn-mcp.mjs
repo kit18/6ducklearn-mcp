@@ -16,6 +16,9 @@ Examples:
   npx github:kit18/6ducklearn-mcp setup-codex
   6ducklearn-mcp setup-codex --dry-run
   6ducklearn-mcp setup-codex --name 6ducklearn --url https://6ducklearn.com/mcp
+
+The setup command refreshes an existing Codex entry with the same name before
+adding the hosted MCP endpoint.
 `);
 }
 
@@ -68,6 +71,12 @@ function runCommand(command) {
   }
 }
 
+function commandSucceeds(command) {
+  const [bin, ...args] = command;
+  const result = spawnSync(bin, args, { stdio: 'ignore' });
+  return !result.error && result.status === 0;
+}
+
 function manualCommands(commands) {
   return commands.map(commandText).join('\n');
 }
@@ -79,6 +88,7 @@ function setupCodex(args) {
   const url = readOption(args, '--url', DEFAULT_URL);
   const noLogin = hasFlag(args, '--no-login');
   const dryRun = hasFlag(args, '--dry-run');
+  const removeCommand = ['codex', 'mcp', 'remove', name];
   const commands = [
     ['codex', 'mcp', 'add', name, '--url', url],
   ];
@@ -88,7 +98,9 @@ function setupCodex(args) {
   }
 
   if (dryRun) {
-    console.log(manualCommands(commands));
+    console.log(`# Refresh an existing entry if one is already configured:
+${commandText(removeCommand)} # ignore if missing
+${manualCommands(commands)}`);
     return;
   }
 
@@ -97,6 +109,10 @@ function setupCodex(args) {
     console.error('Install or open Codex with CLI support, then run:');
     console.error(manualCommands(commands));
     process.exit(127);
+  }
+
+  if (commandSucceeds(['codex', 'mcp', 'get', name])) {
+    runCommand(removeCommand);
   }
 
   for (const command of commands) {

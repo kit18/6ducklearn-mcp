@@ -21,10 +21,12 @@ npx github:kit18/6ducklearn-mcp setup-codex
 ```
 
 This configures the hosted 6DuckLearn MCP server in local Codex and starts the OAuth login flow.
+If a `6ducklearn` entry already exists, the setup command refreshes it first so old local or stdio bridge settings do not linger.
 
 Manual fallback:
 
 ```bash
+codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```

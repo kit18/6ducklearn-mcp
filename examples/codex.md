@@ -9,6 +9,7 @@ npx github:kit18/6ducklearn-mcp setup-codex
 Manual fallback:
 
 ```bash
+codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```
