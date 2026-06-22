@@ -1,9 +1,14 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import path from 'node:path';
 
 const DEFAULT_NAME = '6ducklearn';
 const DEFAULT_URL = 'https://6ducklearn.com/mcp';
+const CODEX_USER_AGENT =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 
 function usage() {
   console.log(`6DuckLearn MCP setup
@@ -18,7 +23,7 @@ Examples:
   6ducklearn-mcp setup-codex --name 6ducklearn --url https://6ducklearn.com/mcp
 
 The setup command refreshes an existing Codex entry with the same name before
-adding the hosted MCP endpoint.
+adding the hosted MCP endpoint and its Codex HTTP compatibility header.
 `);
 }
 
@@ -81,6 +86,57 @@ function manualCommands(commands) {
   return commands.map(commandText).join('\n');
 }
 
+function codexConfigPath() {
+  const codexHome = process.env.CODEX_HOME || path.join(homedir(), '.codex');
+  return path.join(codexHome, 'config.toml');
+}
+
+function serverTableName(name) {
+  return `[mcp_servers.${name}]`;
+}
+
+function headersTableName(name) {
+  return `[mcp_servers.${name}.http_headers]`;
+}
+
+function userAgentLine() {
+  return `User-Agent = ${JSON.stringify(CODEX_USER_AGENT)}`;
+}
+
+function withUserAgentHeader(text, name) {
+  const serverTable = serverTableName(name);
+  const headersTable = headersTableName(name);
+  if (!text.includes(serverTable)) {
+    throw new Error(`Codex config does not contain ${serverTable}`);
+  }
+
+  if (!text.includes(headersTable)) {
+    return `${text.trimEnd()}\n\n${headersTable}\n${userAgentLine()}\n`;
+  }
+
+  const start = text.indexOf(headersTable);
+  const nextTable = text.indexOf('\n[', start + headersTable.length);
+  const end = nextTable === -1 ? text.length : nextTable;
+  const before = text.slice(0, start);
+  const section = text.slice(start, end);
+  const after = text.slice(end);
+  const updatedSection = section.includes('User-Agent =')
+    ? section.replace(/^User-Agent\s*=.*$/m, userAgentLine())
+    : `${section.trimEnd()}\n${userAgentLine()}\n`;
+  return `${before}${updatedSection}${after}`;
+}
+
+function ensureCodexUserAgentHeader(name) {
+  const configPath = codexConfigPath();
+  if (!existsSync(configPath)) {
+    throw new Error(`Codex config was not found at ${configPath}`);
+  }
+
+  const current = readFileSync(configPath, 'utf8');
+  const next = withUserAgentHeader(current, name);
+  if (next !== current) writeFileSync(configPath, next);
+}
+
 function setupCodex(args) {
   assertNoUnknownOptions(args);
 
@@ -100,7 +156,11 @@ function setupCodex(args) {
   if (dryRun) {
     console.log(`# Refresh an existing entry if one is already configured:
 ${commandText(removeCommand)} # ignore if missing
-${manualCommands(commands)}`);
+${manualCommands(commands)}
+
+# Ensure Codex sends a browser-compatible user agent to hosted OAuth/MCP endpoints:
+# ${headersTableName(name)}
+# ${userAgentLine()}`);
     return;
   }
 
@@ -117,6 +177,9 @@ ${manualCommands(commands)}`);
 
   for (const command of commands) {
     runCommand(command);
+    if (command[1] === 'mcp' && command[2] === 'add') {
+      ensureCodexUserAgentHeader(name);
+    }
   }
 
   console.log(`Configured hosted 6DuckLearn MCP as ${name}.`);

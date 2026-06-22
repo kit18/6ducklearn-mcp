@@ -14,6 +14,13 @@ codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
 ```
 
+If configuring manually, add the hosted OAuth compatibility header to `~/.codex/config.toml` before login:
+
+```toml
+[mcp_servers.6ducklearn.http_headers]
+User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+```
+
 Check registration:
 
 ```bash

@@ -20,7 +20,7 @@ From GitHub:
 npx github:kit18/6ducklearn-mcp setup-codex
 ```
 
-This configures the hosted 6DuckLearn MCP server in local Codex and starts the OAuth login flow.
+This configures the hosted 6DuckLearn MCP server in local Codex, adds the hosted OAuth compatibility header, and starts the OAuth login flow.
 If a `6ducklearn` entry already exists, the setup command refreshes it first so old local or stdio bridge settings do not linger.
 
 Manual fallback:
@@ -29,6 +29,13 @@ Manual fallback:
 codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn
+```
+
+If you configure Codex manually and OAuth discovery is challenged by the hosting edge, add this block to `~/.codex/config.toml` before login:
+
+```toml
+[mcp_servers.6ducklearn.http_headers]
+User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
 ```
 
 ### Claude Code
