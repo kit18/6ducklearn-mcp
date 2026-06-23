@@ -28,7 +28,7 @@ Manual fallback:
 ```bash
 codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write,runtime:connect,control:read
 ```
 
 If you configure Codex manually and OAuth discovery is challenged by the hosting edge, add this block to `~/.codex/config.toml` before login:
@@ -59,7 +59,7 @@ The npm packages `@6ducklearn/mcp` and `@6ducklearn/connector` are not published
 - OAuth discovery: `https://6ducklearn.com/.well-known/oauth-authorization-server`
 - protected resource metadata: `https://6ducklearn.com/.well-known/oauth-protected-resource/mcp`
 
-The hosted server uses OAuth scopes such as `mcp:read`, `mcp:write`, `runtime:connect`, `control:read`, and approval-related scopes. Write-capable and sensitive actions remain controlled by 6DuckLearn policy and user approval.
+The setup helper asks Codex for `mcp:read`, `mcp:write`, `runtime:connect`, and `control:read` up front so the consent page can offer both Read and Read + write. Users can approve a lower level during OAuth. Write-capable and sensitive actions remain controlled by 6DuckLearn policy and user approval.
 
 ## What Agents Can Do
 

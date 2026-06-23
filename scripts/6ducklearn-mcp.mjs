@@ -7,6 +7,12 @@ import path from 'node:path';
 
 const DEFAULT_NAME = '6ducklearn';
 const DEFAULT_URL = 'https://6ducklearn.com/mcp';
+const DEFAULT_CODEX_OAUTH_SCOPES = [
+  'mcp:read',
+  'mcp:write',
+  'runtime:connect',
+  'control:read',
+];
 const CODEX_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
 
@@ -150,7 +156,14 @@ function setupCodex(args) {
   ];
 
   if (!noLogin) {
-    commands.push(['codex', 'mcp', 'login', name]);
+    commands.push([
+      'codex',
+      'mcp',
+      'login',
+      name,
+      '--scopes',
+      DEFAULT_CODEX_OAUTH_SCOPES.join(','),
+    ]);
   }
 
   if (dryRun) {
