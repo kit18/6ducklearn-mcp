@@ -11,7 +11,7 @@ Manual fallback:
 ```bash
 codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write,runtime:connect,control:read
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write,runtime:connect,control:read,control:write,policy:read,approval:request,approval:decide
 ```
 
 If configuring manually, add the hosted OAuth compatibility header to `~/.codex/config.toml` before login:

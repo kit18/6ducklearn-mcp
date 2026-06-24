@@ -12,6 +12,10 @@ const DEFAULT_CODEX_OAUTH_SCOPES = [
   'mcp:write',
   'runtime:connect',
   'control:read',
+  'control:write',
+  'policy:read',
+  'approval:request',
+  'approval:decide',
 ];
 const CODEX_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
