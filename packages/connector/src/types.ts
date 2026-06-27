@@ -267,6 +267,36 @@ export interface SubmitLocalProfileMemoryProposalsResult {
   invariants?: Record<string, unknown>;
 }
 
+export interface RuntimeHandoffInput {
+  agent_id?: string;
+  source_runtime_type: RuntimeType;
+  target_runtime_type: RuntimeType;
+  target_connection_id: string;
+  source_projection_id: string;
+  source_profile_hash?: string | null;
+  target_local_profile_key?: string | null;
+  handoff_note?: string | null;
+}
+
+export interface RuntimeHandoffResult {
+  status: string;
+  handoff_contract: {
+    agent_id: string;
+    handoff_event_id?: string;
+    source_local_profile_key?: string | null;
+    source_profile_hash?: string | null;
+    source_projection_id?: string | null;
+    source_runtime_type: RuntimeType;
+    target_connection_id: string;
+    target_local_profile_key?: string | null;
+    target_runtime_type: RuntimeType;
+    transfer: string[];
+    transfer_policy?: string;
+    [key: string]: unknown;
+  };
+  profile_event?: Record<string, unknown>;
+}
+
 export interface ThreadRunProvenance {
   source: 'agent_console';
   thread_id: string;

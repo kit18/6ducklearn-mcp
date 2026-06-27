@@ -233,6 +233,43 @@ export function recordLocalProfileProposalPush(input: {
   };
 }
 
+export function recordLocalProfileHandoff(input: {
+  profileName: string;
+  runtimeType: RuntimeType;
+  baseDir?: string;
+  sourceRuntimeType: RuntimeType;
+  sourceLocalProfileKey?: string | null;
+  sourceProjectionId?: string | null;
+  sourceProfileHash?: string | null;
+  handoffEventId?: string | null;
+  handoffNote?: string | null;
+  switchedAt?: string;
+}): ReadLocalProfileSyncMetadataResult {
+  const current = readLocalProfileSyncMetadata(input);
+  const switchedAt = input.switchedAt ?? new Date().toISOString();
+  const metadata: LocalProfileSyncMetadata = {
+    ...current.metadata,
+    last_handoff: {
+      handoff_event_id: input.handoffEventId ?? null,
+      handoff_note: input.handoffNote ?? null,
+      source_local_profile_key: input.sourceLocalProfileKey ?? null,
+      source_profile_hash: input.sourceProfileHash ?? null,
+      source_projection_id: input.sourceProjectionId ?? null,
+      source_runtime_type: input.sourceRuntimeType,
+      target_local_profile_key: current.localProfileKey,
+      target_runtime_type: input.runtimeType,
+      transfer_policy: 'canonical_profile_context_only',
+      switched_at: switchedAt,
+    },
+    updated_at: switchedAt,
+  };
+  writeFileSync(current.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  return {
+    ...current,
+    metadata,
+  };
+}
+
 export function applyLocalProfileProjection(input: {
   profileName: string;
   runtimeType: RuntimeType;

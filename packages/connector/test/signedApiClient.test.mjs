@@ -254,6 +254,66 @@ test('SignedApiClient submits local profile memory proposals through the control
   }
 });
 
+test('SignedApiClient prepares runtime handoff through the control plane', async () => {
+  const client = new SignedApiClient(buildConfig({
+    tokenId: null,
+    hmacSecret: null,
+    oauthAccessToken: 'oauth-access-token',
+  }));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    const body = JSON.parse(String(options.body));
+
+    assert.equal(options.method, 'POST');
+    assert.match(String(url), /agent-control-plane\/handoff$/);
+    assert.equal(body.agent_id, 'agent-1');
+    assert.equal(body.source_runtime_type, 'codex');
+    assert.equal(body.target_runtime_type, 'hermes');
+    assert.equal(body.target_connection_id, 'connection-2');
+    assert.equal(body.source_projection_id, 'projection-1');
+    assert.equal(body.target_local_profile_key, 'hermes:research');
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        status: 'handoff_ready',
+        handoff_contract: {
+          agent_id: 'agent-1',
+          handoff_event_id: 'event-1',
+          source_projection_id: 'projection-1',
+          source_runtime_type: 'codex',
+          target_connection_id: 'connection-2',
+          target_local_profile_key: 'hermes:research',
+          target_runtime_type: 'hermes',
+          transfer: ['memory_projection'],
+          transfer_policy: 'canonical_profile_context_only',
+        },
+      }),
+    };
+  };
+
+  try {
+    const result = await client.prepareRuntimeHandoff({
+      agent_id: 'agent-1',
+      source_runtime_type: 'codex',
+      target_runtime_type: 'hermes',
+      target_connection_id: 'connection-2',
+      source_projection_id: 'projection-1',
+      target_local_profile_key: 'hermes:research',
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(result.status, 'handoff_ready');
+    assert.equal(result.handoff_contract.handoff_event_id, 'event-1');
+    assert.equal(result.handoff_contract.transfer_policy, 'canonical_profile_context_only');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient refreshes an expiring OAuth token before connector calls', async () => {
   const client = new SignedApiClient(buildConfig({
     tokenId: null,

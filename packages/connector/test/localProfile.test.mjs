@@ -7,6 +7,7 @@ import {
   applyLocalProfileProjection,
   createLocalProfile,
   normalizeProfileName,
+  recordLocalProfileHandoff,
   readLocalProfileSyncMetadata,
   recordLocalProfileProposalPush,
   resolveLocalProfilePaths,
@@ -160,6 +161,61 @@ test('recordLocalProfileProposalPush updates local sync metadata without touchin
     assert.equal(reread.metadata.last_push_proposal_at, '2026-06-28T00:00:00.000Z');
     assert.equal(reread.metadata.last_push_proposal_created_count, 1);
     assert.match(readFileSync(join(reread.memoryDir, 'README.md'), 'utf8'), /does not pull canonical memory/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('recordLocalProfileHandoff records source runtime without copying memory content', () => {
+  const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-'));
+  try {
+    applyLocalProfileProjection({
+      profileName: 'Research Analyst',
+      runtimeType: 'hermes',
+      baseDir: tempDir,
+      pullResult: {
+        projection: {
+          id: 'projection-target',
+          agent_id: 'agent-1',
+          connection_id: 'connection-2',
+          runtime_type: 'hermes',
+          local_profile_key: 'hermes:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-target',
+          status: 'pending',
+          result_profile_hash: 'hash-target',
+        },
+        runtime_projection: {
+          agent_id: 'agent-1',
+          runtime_type: 'hermes',
+          local_profile_key: 'hermes:research-analyst',
+          system_prompt: 'You are a research analyst.',
+          skill_packs: [],
+        },
+        skipped_locks: [],
+      },
+    });
+
+    const updated = recordLocalProfileHandoff({
+      profileName: 'Research Analyst',
+      runtimeType: 'hermes',
+      baseDir: tempDir,
+      sourceRuntimeType: 'codex',
+      sourceLocalProfileKey: 'codex:research-analyst',
+      sourceProjectionId: 'projection-source',
+      sourceProfileHash: 'hash-source',
+      handoffEventId: 'event-1',
+      handoffNote: 'Move to Hermes.',
+      switchedAt: '2026-06-28T01:00:00.000Z',
+    });
+
+    assert.equal(updated.metadata.last_handoff.handoff_event_id, 'event-1');
+    assert.equal(updated.metadata.last_handoff.source_runtime_type, 'codex');
+    assert.equal(updated.metadata.last_handoff.target_runtime_type, 'hermes');
+    assert.equal(updated.metadata.last_handoff.transfer_policy, 'canonical_profile_context_only');
+    assert.match(readFileSync(join(updated.memoryDir, 'README.md'), 'utf8'), /does not pull canonical memory/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

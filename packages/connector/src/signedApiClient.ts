@@ -12,6 +12,8 @@ import type {
   PlaybookRuntimeEventRequest,
   PullLocalProfileProjectionResult,
   PulledTurnPayload,
+  RuntimeHandoffInput,
+  RuntimeHandoffResult,
   RuntimeConnectionRecord,
   SpawnExpertRequest,
   SubmitLocalProfileMemoryProposalsInput,
@@ -182,6 +184,13 @@ export class SignedApiClient {
   ): Promise<SubmitLocalProfileMemoryProposalsResult> {
     return this.controlPlaneJson<SubmitLocalProfileMemoryProposalsResult>(
       `/projections/${encodeURIComponent(projectionId)}/memory-proposals`,
+      { method: 'POST', body: input },
+    );
+  }
+
+  prepareRuntimeHandoff(input: RuntimeHandoffInput): Promise<RuntimeHandoffResult> {
+    return this.controlPlaneJson<RuntimeHandoffResult>(
+      '/handoff',
       { method: 'POST', body: input },
     );
   }
