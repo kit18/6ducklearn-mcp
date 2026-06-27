@@ -436,3 +436,196 @@ test('profile switch prepares handoff, syncs target projection, and keeps local-
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('profile branch forks memory, binds the selected branch, and records local lineage', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-command-'));
+  const requests = [];
+  const restoreEnv = withConnectorEnv({
+    SIXDUCK_AGENT_ID: 'agent-local',
+    SIXDUCK_DEVICE_ID: 'device-1',
+    SIXDUCK_OAUTH_ACCESS_TOKEN: 'oauth-access-token',
+    SIXDUCK_RUNTIME_TYPE: 'codex',
+    SIXDUCK_TOKEN_ID: 'token-branch',
+  });
+
+  const server = await startControlPlaneTestServer(async (req, res) => {
+    const body = await readJsonBody(req);
+    requests.push({ method: req.method, url: req.url, body });
+
+    if (req.url === '/functions/v1/console-register-connection') {
+      assert.equal(body.runtime_type, 'codex');
+      sendJson(res, 200, {
+        connection: {
+          id: 'connection-branch',
+          runtime_type: 'codex',
+          status: 'online',
+        },
+      });
+      return;
+    }
+
+    if (req.url === '/functions/v1/console-heartbeat') {
+      assert.equal(body.connection_id, 'connection-branch');
+      sendJson(res, 200, {
+        ok: true,
+        connection_id: 'connection-branch',
+        status: 'online',
+      });
+      return;
+    }
+
+    if (req.url === '/functions/v1/agent-control-plane/agents/agent-local/memory-branches/memory-source/fork') {
+      assert.equal(body.name, 'Asia thesis');
+      assert.equal(body.fork_note, 'Explore this direction independently.');
+      sendJson(res, 201, {
+        status: 'memory_branch_forked',
+        memory_branch: {
+          id: 'memory-target',
+          agent_id: 'agent-local',
+          name: 'Asia thesis',
+          content_length: 42,
+          allow_evolve: true,
+          source_memory_branch_id: 'memory-source',
+          source_kind: 'fork',
+        },
+        profile_event: {
+          id: 'event-branch',
+          event_type: 'memory_branch.forked',
+        },
+      });
+      return;
+    }
+
+    if (req.url === '/functions/v1/agent-control-plane/agents/agent-local/projections') {
+      assert.equal(body.runtime_type, 'codex');
+      assert.equal(body.local_profile_key, 'codex:research-analyst');
+      assert.equal(body.connection_id, 'connection-branch');
+      assert.equal(body.memory_branch_id, 'memory-target');
+      assert.equal(body.sync_policy.memory_branch_id, 'memory-target');
+      assert.equal(body.sync_policy.source_memory_branch_id, 'memory-source');
+      sendJson(res, 200, {
+        projection: {
+          id: 'projection-branch',
+          agent_id: 'agent-local',
+          connection_id: 'connection-branch',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+      });
+      return;
+    }
+
+    if (req.url === '/functions/v1/agent-control-plane/projections/projection-branch/sync/pull') {
+      sendJson(res, 200, {
+        projection: {
+          id: 'projection-branch',
+          agent_id: 'agent-local',
+          connection_id: 'connection-branch',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-branch',
+          status: 'pending',
+          result_profile_hash: 'branch-hash',
+        },
+        runtime_projection: {
+          agent_id: 'agent-local',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          system_prompt: 'You are a branched research analyst.',
+          projection_metadata: {
+            agent_profile_id: 'agent-local',
+            role_archetype: 'researcher',
+            strategy_pack_key: null,
+            skill_pack_keys: [],
+            memory_branch_id: 'memory-target',
+            memory_profile_ids: ['memory-target'],
+            runtime_type: 'codex',
+          },
+          memory_branch: {
+            id: 'memory-target',
+            name: 'Asia thesis',
+            source_memory_branch_id: 'memory-source',
+            source_kind: 'fork',
+          },
+          skill_packs: [],
+        },
+        skipped_locks: [],
+        invariants: {
+          memory_policy: 'review_proposals_only',
+        },
+      });
+      return;
+    }
+
+    if (req.url === '/functions/v1/agent-control-plane/projections/projection-branch/sync/sync-branch/ack') {
+      assert.equal(body.profile_hash, 'branch-hash');
+      sendJson(res, 200, {
+        projection: {
+          id: 'projection-branch',
+          agent_id: 'agent-local',
+          connection_id: 'connection-branch',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-branch',
+          status: 'succeeded',
+        },
+      });
+      return;
+    }
+
+    sendJson(res, 404, { error: { message: `Unexpected route ${req.url}` } });
+  });
+
+  process.env.SIXDUCK_SUPABASE_URL = server.baseUrl;
+
+  try {
+    await runProfileCommand([
+      'profile',
+      'branch',
+      '--profile',
+      'research-analyst',
+      '--runtime',
+      'codex',
+      '--base-dir',
+      tempDir,
+      '--source-memory-branch',
+      'memory-source',
+      '--branch-name',
+      'Asia thesis',
+      '--fork-note',
+      'Explore this direction independently.',
+    ]);
+
+    const metadata = JSON.parse(
+      readFileSync(join(tempDir, 'research-analyst', '.6ducklearn', 'profile-sync.json'), 'utf8'),
+    );
+    assert.equal(metadata.agent_id, 'agent-local');
+    assert.equal(metadata.projection_id, 'projection-branch');
+    assert.equal(metadata.memory_branch_id, 'memory-target');
+    assert.equal(metadata.last_memory_branch_fork.fork_event_id, 'event-branch');
+    assert.equal(metadata.last_memory_branch_fork.source_memory_branch_id, 'memory-source');
+    assert.equal(metadata.last_memory_branch_fork.target_memory_branch_id, 'memory-target');
+    assert.deepEqual(
+      requests.map((request) => request.url),
+      [
+        '/functions/v1/console-register-connection',
+        '/functions/v1/console-heartbeat',
+        '/functions/v1/agent-control-plane/agents/agent-local/memory-branches/memory-source/fork',
+        '/functions/v1/agent-control-plane/agents/agent-local/projections',
+        '/functions/v1/agent-control-plane/projections/projection-branch/sync/pull',
+        '/functions/v1/agent-control-plane/projections/projection-branch/sync/sync-branch/ack',
+      ],
+    );
+  } finally {
+    await server.close();
+    restoreEnv();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

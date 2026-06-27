@@ -14,6 +14,8 @@ const ENV_KEYS = [
   'SIXDUCK_AGENT_ID',
   'SIXDUCK_TOKEN_ID',
   'SIXDUCK_HMAC_SECRET',
+  'SIXDUCK_CODEX_HOME',
+  'SIXDUCK_CODEX_SOURCE_HOME',
   'DUCK_SUPABASE_URL',
   'DUCK_RUNTIME_TYPE',
   'DUCK_OAUTH_SESSION_PATH',
@@ -21,6 +23,8 @@ const ENV_KEYS = [
   'DUCK_AGENT_ID',
   'DUCK_TOKEN_ID',
   'DUCK_HMAC_SECRET',
+  'DUCK_CODEX_HOME',
+  'DUCK_CODEX_SOURCE_HOME',
 ];
 
 function withEnv(overrides, fn) {
@@ -96,5 +100,23 @@ test('loadConfig rejects a stale saved OAuth session for a different requested t
       () => loadConfig(),
       /Missing connector credentials/,
     );
+  });
+});
+
+test('loadConfig wires optional Codex bridge home settings', () => {
+  const home = mkdtempSync(join(tmpdir(), '6ducklearn-connector-config-'));
+  const codexHome = join(home, 'bridge-home');
+  const sourceHome = join(home, 'source-home');
+
+  withEnv({
+    HOME: home,
+    SIXDUCK_SUPABASE_URL: 'https://example.supabase.co',
+    SIXDUCK_OAUTH_ACCESS_TOKEN: 'access-token',
+    SIXDUCK_CODEX_HOME: codexHome,
+    SIXDUCK_CODEX_SOURCE_HOME: sourceHome,
+  }, () => {
+    const config = loadConfig();
+    assert.equal(config.codex.home, codexHome);
+    assert.equal(config.codex.sourceHome, sourceHome);
   });
 });

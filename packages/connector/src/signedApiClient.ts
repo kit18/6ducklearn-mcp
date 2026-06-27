@@ -4,6 +4,8 @@ import type {
   BindLocalProfileProjectionInput,
   ConnectorConfig,
   ConsolePushEvent,
+  ForkMemoryBranchInput,
+  ForkMemoryBranchResult,
   LocalProfileProjection,
   PendingApprovalStatus,
   PlaybookMemoryProposalRequest,
@@ -15,7 +17,9 @@ import type {
   RuntimeHandoffInput,
   RuntimeHandoffResult,
   RuntimeConnectionRecord,
+  RuntimeCapabilities,
   SpawnExpertRequest,
+  RuntimeHealth,
   SubmitLocalProfileMemoryProposalsInput,
   SubmitLocalProfileMemoryProposalsResult,
 } from './types.js';
@@ -44,7 +48,7 @@ function isRetryablePushError(error: unknown): error is ApiError {
   return true;
 }
 
-function buildCapabilities(config: ConnectorConfig) {
+function buildCapabilities(config: ConnectorConfig): RuntimeCapabilities {
   if (config.runtimeType === 'openclaw') {
     return {
       schema_version: '2026-03-29',
@@ -98,21 +102,45 @@ function buildCapabilities(config: ConnectorConfig) {
   };
 }
 
+function withRuntimeHealth(
+  capabilities: RuntimeCapabilities,
+  runtimeHealth?: RuntimeHealth | null,
+): RuntimeCapabilities {
+  if (!runtimeHealth) {
+    return capabilities;
+  }
+
+  return {
+    ...capabilities,
+    runtime_health: runtimeHealth,
+  };
+}
+
 export class SignedApiClient {
   constructor(private readonly config: ConnectorConfig) {}
 
-  registerConnection(runtimeVersion: string | null): Promise<RuntimeConnectionRecord> {
+  registerConnection(
+    runtimeVersion: string | null,
+    capabilities: RuntimeCapabilities = buildCapabilities(this.config),
+    runtimeHealth?: RuntimeHealth | null,
+  ): Promise<RuntimeConnectionRecord> {
     return this.postJson<{ connection: RuntimeConnectionRecord }>('console-register-connection', {
       device_id: this.config.deviceId,
       device_name: this.config.deviceName,
       runtime_type: this.config.runtimeType,
-      capabilities: buildCapabilities(this.config),
+      capabilities: withRuntimeHealth(capabilities, runtimeHealth),
       runtime_version: runtimeVersion,
       adapter_version: this.config.adapterVersion,
     }).then((response) => response.connection);
   }
 
-  heartbeat(connectionId: string, status: string, runtimeVersion: string | null): Promise<{
+  heartbeat(
+    connectionId: string,
+    status: string,
+    runtimeVersion: string | null,
+    capabilities: RuntimeCapabilities = buildCapabilities(this.config),
+    runtimeHealth?: RuntimeHealth | null,
+  ): Promise<{
     ok: true;
     connection_id: string;
     status: string;
@@ -121,7 +149,7 @@ export class SignedApiClient {
       connection_id: connectionId,
       device_name: this.config.deviceName,
       status,
-      capabilities: buildCapabilities(this.config),
+      capabilities: withRuntimeHealth(capabilities, runtimeHealth),
       runtime_version: runtimeVersion,
       adapter_version: this.config.adapterVersion,
     });
@@ -195,12 +223,25 @@ export class SignedApiClient {
     );
   }
 
+  forkMemoryBranch(
+    agentId: string,
+    sourceMemoryBranchId: string,
+    input: ForkMemoryBranchInput,
+  ): Promise<ForkMemoryBranchResult> {
+    return this.controlPlaneJson<ForkMemoryBranchResult>(
+      `/agents/${encodeURIComponent(agentId)}/memory-branches/${encodeURIComponent(sourceMemoryBranchId)}/fork`,
+      { method: 'POST', body: input },
+    );
+  }
+
   async push(params: {
     connectionId: string;
     turnId: string;
     state?: string;
     runtimeThreadId?: string;
     runtimeTurnId?: string;
+    leaseToken?: string | null;
+    runtimeAttempt?: number | null;
     threadTitle?: string;
     errorMessage?: string;
     events?: ConsolePushEvent[];
@@ -215,6 +256,8 @@ export class SignedApiClient {
       state: params.state,
       runtime_thread_id: params.runtimeThreadId,
       runtime_turn_id: params.runtimeTurnId,
+      lease_token: params.leaseToken ?? undefined,
+      runtime_attempt: typeof params.runtimeAttempt === 'number' ? params.runtimeAttempt : undefined,
       thread_title: params.threadTitle,
       error_message: params.errorMessage,
       events: params.events ?? [],

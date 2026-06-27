@@ -3,6 +3,7 @@ import type {
   RuntimeAdapter,
   RuntimeCapabilities,
   RuntimeEvent,
+  RuntimeHealth,
   RuntimeInputItem,
   RuntimeThreadContext,
 } from './types.js';
@@ -251,6 +252,26 @@ export class HermesApiServerClient implements RuntimeAdapter {
       extractVersionCandidate(response.headers.get('x-runtime-version')) ||
       extractVersionCandidate(response.headers.get('server'))
     );
+  }
+
+  async checkHealth(): Promise<RuntimeHealth> {
+    const checkedAt = new Date().toISOString();
+    try {
+      const payload = await this.fetchJson('health');
+      return {
+        ok: true,
+        status: 'healthy',
+        checked_at: checkedAt,
+        details: asRecord(payload) ?? { response: stringifyValue(payload) },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 'unhealthy',
+        checked_at: checkedAt,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   getCapabilities(): RuntimeCapabilities {

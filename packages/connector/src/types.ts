@@ -5,6 +5,7 @@ export interface RuntimeCapabilities {
   runtime: RuntimeType;
   transport: string;
   protocol: string;
+  runtime_health?: RuntimeHealth;
   structured_context?: {
     instructions: boolean;
     metadata: boolean;
@@ -19,6 +20,15 @@ export interface RuntimeCapabilities {
     remote_access: boolean;
   };
   [key: string]: unknown;
+}
+
+export interface RuntimeHealth {
+  ok: boolean;
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  checked_at: string;
+  runtime_version?: string | null;
+  message?: string | null;
+  details?: Record<string, unknown>;
 }
 
 export interface ConnectorConfig {
@@ -48,6 +58,8 @@ export interface ConnectorConfig {
     reasoningEffort: 'low' | 'medium' | 'high';
     summary: 'auto' | 'concise' | 'detailed';
     cwd: string;
+    home: string | null;
+    sourceHome: string | null;
     minVersion: string;
     quietProfile: boolean;
   };
@@ -106,6 +118,7 @@ export interface BindLocalProfileProjectionInput {
   local_path_hint?: string;
   profile_alias?: string;
   profile_alias_id?: string;
+  memory_branch_id?: string | null;
   sync_policy?: Record<string, unknown>;
 }
 
@@ -216,6 +229,7 @@ export interface PullLocalProfileProjectionResult {
     local_profile_key: string;
     projection_metadata?: ProjectionMetadata | null;
     logical_agent?: Record<string, unknown> | null;
+    memory_branch?: AgentMemoryBranch | null;
     system_prompt?: string;
     approval_level?: string;
     data_boundaries?: Record<string, unknown> | null;
@@ -297,6 +311,38 @@ export interface RuntimeHandoffResult {
   profile_event?: Record<string, unknown>;
 }
 
+export interface AgentMemoryBranch {
+  id: string;
+  user_id?: string;
+  agent_id: string;
+  name?: string | null;
+  content_length?: number;
+  char_limit?: number | null;
+  allow_evolve?: boolean;
+  source_memory_branch_id?: string | null;
+  source_kind?: string | null;
+  source_profile_hash?: string | null;
+  fork_note?: string | null;
+  deleted_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ForkMemoryBranchInput {
+  name?: string | null;
+  fork_note?: string | null;
+  allow_evolve?: boolean;
+}
+
+export interface ForkMemoryBranchResult {
+  status: string;
+  memory_branch: AgentMemoryBranch;
+  source_memory_branch?: AgentMemoryBranch;
+  profile_event?: Record<string, unknown>;
+  invariants?: Record<string, unknown>;
+}
+
 export interface ThreadRunProvenance {
   source: 'agent_console';
   thread_id: string;
@@ -336,6 +382,8 @@ export interface PulledTurnPayload {
     state: string;
     created_at: string;
     recovery_count?: number | null;
+    lease_token?: string | null;
+    runtime_attempt?: number | null;
   } | null;
   run?: ThreadRunProvenance | null;
 }
@@ -534,6 +582,7 @@ export interface RuntimeAdapter {
   start(): Promise<void>;
   stop(): Promise<void>;
   detectRuntimeVersion(): Promise<string | null>;
+  checkHealth(): Promise<RuntimeHealth>;
   getCapabilities(): RuntimeCapabilities;
   ensureThread(context: RuntimeThreadContext): Promise<string>;
   interruptTurn(runtimeThreadId: string, runtimeTurnId: string): Promise<void>;

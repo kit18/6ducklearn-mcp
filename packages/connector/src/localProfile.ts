@@ -34,6 +34,8 @@ export interface LocalProfileSyncMetadata {
   projection_id?: string;
   sync_id?: string;
   profile_hash?: string;
+  memory_branch_id?: string | null;
+  memory_profile_ids?: string[];
   local_file_hash?: string;
   updated_at?: string;
   last_push_proposal_at?: string;
@@ -270,6 +272,39 @@ export function recordLocalProfileHandoff(input: {
   };
 }
 
+export function recordLocalProfileMemoryBranchFork(input: {
+  profileName: string;
+  runtimeType: RuntimeType;
+  baseDir?: string;
+  sourceMemoryBranchId?: string | null;
+  targetMemoryBranchId: string;
+  branchName?: string | null;
+  forkEventId?: string | null;
+  forkNote?: string | null;
+  forkedAt?: string;
+}): ReadLocalProfileSyncMetadataResult {
+  const current = readLocalProfileSyncMetadata(input);
+  const forkedAt = input.forkedAt ?? new Date().toISOString();
+  const metadata: LocalProfileSyncMetadata = {
+    ...current.metadata,
+    memory_branch_id: input.targetMemoryBranchId,
+    last_memory_branch_fork: {
+      branch_name: input.branchName ?? null,
+      fork_event_id: input.forkEventId ?? null,
+      fork_note: input.forkNote ?? null,
+      source_memory_branch_id: input.sourceMemoryBranchId ?? null,
+      target_memory_branch_id: input.targetMemoryBranchId,
+      forked_at: forkedAt,
+    },
+    updated_at: forkedAt,
+  };
+  writeFileSync(current.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  return {
+    ...current,
+    metadata,
+  };
+}
+
 export function applyLocalProfileProjection(input: {
   profileName: string;
   runtimeType: RuntimeType;
@@ -317,6 +352,11 @@ export function applyLocalProfileProjection(input: {
   }
 
   const skippedLocks = input.pullResult.skipped_locks ?? [];
+  const projectionMetadata = projection.projection_metadata ?? null;
+  const memoryBranchId = projectionMetadata?.memory_branch_id ?? null;
+  const memoryProfileIds = Array.isArray(projectionMetadata?.memory_profile_ids)
+    ? projectionMetadata.memory_profile_ids
+    : [];
   const metadata = {
     ...(readExistingJson(paths.metadataPath) ?? {}),
     schema_version: '2026-06-28',
@@ -327,8 +367,10 @@ export function applyLocalProfileProjection(input: {
     projection_id: input.pullResult.projection.id,
     sync_id: syncId,
     profile_hash: profileHash,
+    memory_branch_id: memoryBranchId,
+    memory_profile_ids: memoryProfileIds,
     local_file_hash: localFileHash(written),
-    projection_metadata: projection.projection_metadata ?? null,
+    projection_metadata: projectionMetadata,
     skipped_locks: skippedLocks,
     memory_policy: input.pullResult.invariants?.memory_policy ?? 'review_proposals_only',
     updated_at: new Date().toISOString(),
@@ -354,7 +396,8 @@ export function applyLocalProfileProjection(input: {
     'memory:',
     '  pull_policy: "disabled"',
     '  push_policy: "review_proposal"',
-    `projection_metadata_json: ${yamlString(stableStringify(projection.projection_metadata ?? null))}`,
+    `  branch_id: ${yamlString(memoryBranchId)}`,
+    `projection_metadata_json: ${yamlString(stableStringify(projectionMetadata))}`,
     '',
   ].join('\n');
   writeTextFile(paths.configPath, configContent, written);
@@ -366,6 +409,7 @@ export function applyLocalProfileProjection(input: {
     'Local learning should be pushed back as reviewable memory proposals before it can evolve the Agent Profile.',
     '',
     `Last synced Agent Profile: ${projection.agent_id}`,
+    `Selected Memory Branch: ${memoryBranchId ?? 'default evolving branch'}`,
     `Last sync run: ${syncId}`,
     '',
   ].join('\n'), written);

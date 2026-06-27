@@ -314,6 +314,127 @@ test('SignedApiClient prepares runtime handoff through the control plane', async
   }
 });
 
+test('SignedApiClient forks a memory branch through the control plane', async () => {
+  const client = new SignedApiClient(buildConfig({
+    tokenId: null,
+    hmacSecret: null,
+    oauthAccessToken: 'oauth-access-token',
+  }));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    const body = JSON.parse(String(options.body));
+
+    assert.equal(options.method, 'POST');
+    assert.match(
+      String(url),
+      /agent-control-plane\/agents\/agent-1\/memory-branches\/memory-source\/fork$/,
+    );
+    assert.equal(body.name, 'Asia expansion');
+    assert.equal(body.fork_note, 'Explore one direction independently.');
+    return {
+      ok: true,
+      status: 201,
+      text: async () => JSON.stringify({
+        status: 'memory_branch_forked',
+        memory_branch: {
+          id: 'memory-target',
+          agent_id: 'agent-1',
+          name: 'Asia expansion',
+          content_length: 42,
+          allow_evolve: true,
+          source_memory_branch_id: 'memory-source',
+          source_kind: 'fork',
+        },
+      }),
+    };
+  };
+
+  try {
+    const result = await client.forkMemoryBranch('agent-1', 'memory-source', {
+      name: 'Asia expansion',
+      fork_note: 'Explore one direction independently.',
+      allow_evolve: true,
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer oauth-access-token');
+    assert.equal(result.status, 'memory_branch_forked');
+    assert.equal(result.memory_branch.id, 'memory-target');
+    assert.equal(result.memory_branch.source_memory_branch_id, 'memory-source');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('SignedApiClient sends runtime health in registration and heartbeat capabilities', async () => {
+  const client = new SignedApiClient(buildConfig());
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  const capabilities = {
+    schema_version: '2026-03-29',
+    runtime: 'codex',
+    transport: 'queue-poll',
+    protocol: 'codex-app-server',
+    runtime_health: {
+      ok: true,
+      status: 'healthy',
+      checked_at: '2026-06-13T00:00:00.000Z',
+      runtime_version: '0.117.0',
+    },
+    features: {
+      streaming: true,
+      interrupt: true,
+      approvals: true,
+      session_sync: true,
+      remote_access: false,
+    },
+  };
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    if (String(url).endsWith('/console-register-connection')) {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          connection: {
+            id: 'conn-1',
+            status: 'healthy',
+            runtime_type: 'codex',
+            device_id: 'device-id',
+            device_name: 'Test Device',
+          },
+        }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        connection_id: 'conn-1',
+        status: 'healthy',
+      }),
+    };
+  };
+
+  try {
+    await client.registerConnection('0.117.0', capabilities);
+    await client.heartbeat('conn-1', 'healthy', '0.117.0', capabilities);
+
+    assert.equal(requests.length, 2);
+    const registerBody = JSON.parse(String(requests[0].options.body));
+    const heartbeatBody = JSON.parse(String(requests[1].options.body));
+    assert.deepEqual(registerBody.capabilities.runtime_health, capabilities.runtime_health);
+    assert.deepEqual(heartbeatBody.capabilities.runtime_health, capabilities.runtime_health);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient refreshes an expiring OAuth token before connector calls', async () => {
   const client = new SignedApiClient(buildConfig({
     tokenId: null,
@@ -371,6 +492,69 @@ test('SignedApiClient refreshes an expiring OAuth token before connector calls',
   }
 });
 
+test('SignedApiClient sends adapter capabilities with nested runtime health', async () => {
+  const client = new SignedApiClient(buildConfig());
+  const originalFetch = globalThis.fetch;
+  let requestBody = null;
+
+  globalThis.fetch = async (_url, options) => {
+    requestBody = JSON.parse(String(options.body));
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        ok: true,
+        connection_id: 'conn-1',
+        status: 'online',
+      }),
+    };
+  };
+
+  try {
+    await client.heartbeat(
+      'conn-1',
+      'online',
+      '0.117.0',
+      {
+        schema_version: '2026-03-29',
+        runtime: 'codex',
+        transport: 'queue-poll',
+        protocol: 'codex-app-server',
+        features: {
+          streaming: true,
+          interrupt: true,
+          approvals: true,
+          session_sync: true,
+          remote_access: false,
+        },
+        structured_context: {
+          instructions: true,
+          metadata: false,
+          input_items: true,
+          fallback_mode: 'native',
+        },
+      },
+      {
+        ok: true,
+        checked_at: '2026-05-22T00:00:00.000Z',
+        runtime_version: '0.117.0',
+        message: 'Codex app-server responded.',
+      },
+    );
+
+    assert.equal(requestBody.capabilities.runtime, 'codex');
+    assert.equal(requestBody.capabilities.structured_context.input_items, true);
+    assert.deepEqual(requestBody.capabilities.runtime_health, {
+      ok: true,
+      checked_at: '2026-05-22T00:00:00.000Z',
+      runtime_version: '0.117.0',
+      message: 'Codex app-server responded.',
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient retries transient console-push failures with non-JSON bodies', async () => {
   const client = new SignedApiClient(buildConfig());
   const originalFetch = globalThis.fetch;
@@ -405,6 +589,8 @@ test('SignedApiClient retries transient console-push failures with non-JSON bodi
       state: 'claimed',
       runtimeThreadId: 'thread-1',
       runtimeTurnId: undefined,
+      leaseToken: 'lease-1',
+      runtimeAttempt: 2,
       threadTitle: 'Example thread',
       errorMessage: undefined,
       events: [],
@@ -413,6 +599,9 @@ test('SignedApiClient retries transient console-push failures with non-JSON bodi
     assert.equal(calls.length, 2);
     assert.equal(result.interrupt_requested, false);
     assert.ok(calls.every((call) => call.url.endsWith('/functions/v1/console-push')));
+    const body = JSON.parse(String(calls[0].options.body));
+    assert.equal(body.lease_token, 'lease-1');
+    assert.equal(body.runtime_attempt, 2);
   } finally {
     globalThis.fetch = originalFetch;
     globalThis.setTimeout = originalSetTimeout;
