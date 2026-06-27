@@ -195,6 +195,65 @@ test('SignedApiClient calls Local Profile Projection control-plane routes with O
   }
 });
 
+test('SignedApiClient submits local profile memory proposals through the control plane', async () => {
+  const client = new SignedApiClient(buildConfig({
+    tokenId: null,
+    hmacSecret: null,
+    oauthAccessToken: 'oauth-access-token',
+  }));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    const body = JSON.parse(String(options.body));
+
+    assert.equal(options.method, 'POST');
+    assert.match(String(url), /agent-control-plane\/projections\/projection-1\/memory-proposals$/);
+    assert.equal(body.profile_hash, 'profile-hash');
+    assert.equal(body.proposals[0].suggestion_content, 'Remember to separate facts from interpretation.');
+    assert.equal(body.proposals[0].reason, 'User corrected the local profile output.');
+    return {
+      ok: true,
+      status: 201,
+      text: async () => JSON.stringify({
+        projection: {
+          id: 'projection-1',
+          agent_id: 'agent-1',
+          connection_id: 'connection-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research',
+          status: 'active',
+        },
+        proposals: [{
+          id: 'review-1',
+          status: 'pending',
+        }],
+        created_count: 1,
+        target_profile_id: 'memory-branch-1',
+      }),
+    };
+  };
+
+  try {
+    const result = await client.submitLocalProfileMemoryProposals('projection-1', {
+      profile_hash: 'profile-hash',
+      proposals: [{
+        suggestion_content: 'Remember to separate facts from interpretation.',
+        reason: 'User corrected the local profile output.',
+      }],
+      source: { command: 'profile propose' },
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer oauth-access-token');
+    assert.equal(result.created_count, 1);
+    assert.equal(result.proposals[0].status, 'pending');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient refreshes an expiring OAuth token before connector calls', async () => {
   const client = new SignedApiClient(buildConfig({
     tokenId: null,

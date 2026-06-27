@@ -236,6 +236,37 @@ export interface AckLocalProfileProjectionSyncResult {
   };
 }
 
+export interface LocalProfileMemoryProposalInput {
+  suggestion_content: string;
+  reason?: string;
+  source_excerpt?: string;
+}
+
+export interface SubmitLocalProfileMemoryProposalsInput {
+  profile_hash?: string | null;
+  proposals: LocalProfileMemoryProposalInput[];
+  source?: Record<string, unknown>;
+}
+
+export interface LocalProfileMemoryProposal {
+  id: string;
+  agent_id?: string;
+  target_profile_id?: string;
+  suggestion_content?: string;
+  reason?: string;
+  status: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export interface SubmitLocalProfileMemoryProposalsResult {
+  projection: LocalProfileProjection;
+  proposals: LocalProfileMemoryProposal[];
+  created_count: number;
+  target_profile_id: string;
+  invariants?: Record<string, unknown>;
+}
+
 export interface ThreadRunProvenance {
   source: 'agent_console';
   thread_id: string;

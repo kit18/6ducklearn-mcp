@@ -25,6 +25,25 @@ export interface ApplyLocalProfileResult extends LocalProfilePaths {
   skippedLocks: SkippedSkillLock[];
 }
 
+export interface LocalProfileSyncMetadata {
+  schema_version?: string;
+  profile_name?: string;
+  runtime_type?: RuntimeType;
+  local_profile_key?: string;
+  agent_id?: string;
+  projection_id?: string;
+  sync_id?: string;
+  profile_hash?: string;
+  local_file_hash?: string;
+  updated_at?: string;
+  last_push_proposal_at?: string;
+  [key: string]: unknown;
+}
+
+export interface ReadLocalProfileSyncMetadataResult extends LocalProfilePaths {
+  metadata: LocalProfileSyncMetadata;
+}
+
 function runtimeProfileBaseDir(runtimeType: RuntimeType): string {
   if (runtimeType === 'hermes') return join(homedir(), '.hermes', 'profiles');
   if (runtimeType === 'codex') return join(homedir(), '.codex', 'profiles');
@@ -83,6 +102,11 @@ function readExistingJson(path: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+function metadataText(metadata: Record<string, unknown>, key: string): string | null {
+  const value = metadata[key];
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
 export function normalizeProfileName(input: string): string {
@@ -163,6 +187,50 @@ export function createLocalProfile(input: {
   }
 
   return paths;
+}
+
+export function readLocalProfileSyncMetadata(input: {
+  profileName: string;
+  runtimeType: RuntimeType;
+  baseDir?: string;
+}): ReadLocalProfileSyncMetadataResult {
+  const paths = resolveLocalProfilePaths(input);
+  const metadata = readExistingJson(paths.metadataPath);
+  if (!metadata) {
+    throw new Error(`Local profile metadata not found. Run profile sync first: ${paths.metadataPath}`);
+  }
+  const projectionId = metadataText(metadata, 'projection_id');
+  if (!projectionId) {
+    throw new Error('Local profile metadata does not include projection_id. Run profile sync again before proposing memory.');
+  }
+  return {
+    ...paths,
+    metadata: metadata as LocalProfileSyncMetadata,
+  };
+}
+
+export function recordLocalProfileProposalPush(input: {
+  profileName: string;
+  runtimeType: RuntimeType;
+  baseDir?: string;
+  createdCount: number;
+  proposalCount: number;
+  pushedAt?: string;
+}): ReadLocalProfileSyncMetadataResult {
+  const current = readLocalProfileSyncMetadata(input);
+  const pushedAt = input.pushedAt ?? new Date().toISOString();
+  const metadata: LocalProfileSyncMetadata = {
+    ...current.metadata,
+    last_push_proposal_at: pushedAt,
+    last_push_proposal_count: input.proposalCount,
+    last_push_proposal_created_count: input.createdCount,
+    updated_at: pushedAt,
+  };
+  writeFileSync(current.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  return {
+    ...current,
+    metadata,
+  };
 }
 
 export function applyLocalProfileProjection(input: {

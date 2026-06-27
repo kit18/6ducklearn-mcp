@@ -57,6 +57,20 @@ node packages/connector/dist/index.js profile sync --profile research-analyst
 
 Profile Sync binds the local profile key, pulls approved config and unlocked skill packs, writes `config.yaml`, `SYSTEM_PROMPT.md`, `skills/6ducklearn/*/SKILL.md`, and `.6ducklearn/profile-sync.json`, then acknowledges the sync hash back to 6DuckLearn. Canonical memory is not pulled into local files; local learning must return as reviewable memory proposals.
 
+Submit a local learning as a reviewable memory proposal:
+
+```bash
+SIXDUCK_SUPABASE_URL=<your-6ducklearn-supabase-functions-url> \
+SIXDUCK_RUNTIME_TYPE=hermes \
+SIXDUCK_AGENT_ID=<agent_id> \
+node packages/connector/dist/index.js profile propose \
+  --profile research-analyst \
+  --memory "Remember to separate facts from interpretation." \
+  --reason "The user corrected a local analysis draft."
+```
+
+`profile propose` refreshes the runtime anchor and creates a pending review item in 6DuckLearn. It does not mutate canonical memory; the user must keep the proposal in the review queue before it is appended.
+
 ## Run With Codex
 
 ```bash
