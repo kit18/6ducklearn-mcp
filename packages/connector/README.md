@@ -71,6 +71,21 @@ node packages/connector/dist/index.js profile propose \
 
 `profile propose` refreshes the runtime anchor and creates a pending review item in 6DuckLearn. It does not mutate canonical memory; the user must keep the proposal in the review queue before it is appended.
 
+Switch the same profile name to another runtime:
+
+```bash
+SIXDUCK_SUPABASE_URL=<your-6ducklearn-supabase-functions-url> \
+SIXDUCK_RUNTIME_TYPE=hermes \
+SIXDUCK_AGENT_ID=<agent_id> \
+node packages/connector/dist/index.js profile switch \
+  --profile research-analyst \
+  --from-runtime codex \
+  --to-runtime hermes \
+  --handoff-note "Continue the same durable profile in Hermes."
+```
+
+`profile switch` prepares a control-plane handoff, records an audit event, syncs the target runtime folder, and acknowledges the target projection hash. The target pull materializes the current canonical Agent Profile projection for the target runtime; device-local files, runtime transcripts, tool state, and credentials stay in the source runtime. For custom local folders, pass distinct `--source-base-dir` and `--target-base-dir` values.
+
 ## Run With Codex
 
 ```bash

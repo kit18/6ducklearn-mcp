@@ -3,6 +3,7 @@ import {
   createLocalProfile,
   applyLocalProfileProjection,
   normalizeProfileName,
+  recordLocalProfileHandoff,
   readLocalProfileSyncMetadata,
   recordLocalProfileProposalPush,
   resolveLocalProfilePaths,
@@ -13,11 +14,16 @@ import type { RuntimeType } from './types.js';
 interface ProfileCommandOptions {
   profile?: string;
   runtime?: RuntimeType;
+  fromRuntime?: RuntimeType;
+  toRuntime?: RuntimeType;
   agentId?: string;
   baseDir?: string;
+  sourceBaseDir?: string;
+  targetBaseDir?: string;
   memory?: string;
   reason?: string;
   sourceExcerpt?: string;
+  handoffNote?: string;
 }
 
 function usage(): string {
@@ -26,6 +32,7 @@ function usage(): string {
     '  6ducklearn-connector profile create <profile_name> [--runtime codex|hermes] [--base-dir <path>]',
     '  6ducklearn-connector profile sync --profile <profile_name> [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
     '  6ducklearn-connector profile propose --profile <profile_name> --memory <text> [--reason <text>] [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
+    '  6ducklearn-connector profile switch --profile <profile_name> --from-runtime codex|hermes --to-runtime codex|hermes [--handoff-note <text>] [--agent-id <agent_id>] [--source-base-dir <path>] [--target-base-dir <path>]',
     '  6ducklearn-connector sync --profile <profile_name> [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
   ].join('\n');
 }
@@ -47,16 +54,26 @@ function parseOptions(args: string[]): ProfileCommandOptions & { positional: str
       options.profile = args[++index];
     } else if (arg === '--runtime') {
       options.runtime = parseRuntime(args[++index]);
+    } else if (arg === '--from-runtime' || arg === '--source-runtime') {
+      options.fromRuntime = parseRuntime(args[++index]);
+    } else if (arg === '--to-runtime' || arg === '--target-runtime') {
+      options.toRuntime = parseRuntime(args[++index]);
     } else if (arg === '--agent-id') {
       options.agentId = args[++index];
     } else if (arg === '--base-dir' || arg === '--dir') {
       options.baseDir = args[++index];
+    } else if (arg === '--source-base-dir' || arg === '--from-base-dir') {
+      options.sourceBaseDir = args[++index];
+    } else if (arg === '--target-base-dir' || arg === '--to-base-dir') {
+      options.targetBaseDir = args[++index];
     } else if (arg === '--memory' || arg === '--suggestion') {
       options.memory = args[++index];
     } else if (arg === '--reason') {
       options.reason = args[++index];
     } else if (arg === '--source-excerpt') {
       options.sourceExcerpt = args[++index];
+    } else if (arg === '--handoff-note') {
+      options.handoffNote = args[++index];
     } else if (arg.startsWith('--')) {
       throw new Error(`Unknown option: ${arg}`);
     } else {
@@ -89,10 +106,10 @@ function resolveAgentId(options: ProfileCommandOptions, configAgentId: string | 
   return agentId;
 }
 
-function assertLocalProfileAgentBoundary(metadataAgentId: string | null, agentId: string): void {
+function assertLocalProfileAgentBoundary(metadataAgentId: string | null, agentId: string, action: string): void {
   if (!metadataAgentId || metadataAgentId === agentId) return;
   throw new Error(
-    `Local profile metadata belongs to Agent ID ${metadataAgentId}, but the active connector is using ${agentId}. Run profile sync with the matching agent before proposing memory.`,
+    `Local profile metadata belongs to Agent ID ${metadataAgentId}, but the active connector is using ${agentId}. Run profile sync with the matching agent before ${action}.`,
   );
 }
 
@@ -204,7 +221,7 @@ async function runPropose(args: string[]): Promise<void> {
     throw new Error('Local profile metadata is missing projection_id. Run profile sync again before proposing memory.');
   }
   const agentId = resolveAgentId(options, config.oauthAgentId ?? metadataAgentId);
-  assertLocalProfileAgentBoundary(metadataAgentId, agentId);
+  assertLocalProfileAgentBoundary(metadataAgentId, agentId, 'proposing memory');
   const tokenId = resolveTokenId(config.tokenId, config.oauthTokenId);
   const proposal = resolveMemoryProposal(options);
   const client = new SignedApiClient(config);
@@ -246,6 +263,109 @@ async function runPropose(args: string[]): Promise<void> {
   console.log('[6ducklearn-connector] Canonical memory was not changed. Keep the proposal in 6DuckLearn to promote it.');
 }
 
+async function runSwitch(args: string[]): Promise<void> {
+  const options = parseOptions(args);
+  const fromRuntime = options.fromRuntime;
+  const targetRuntime = options.toRuntime ?? options.runtime;
+  if (!fromRuntime || !targetRuntime) {
+    throw new Error(`Profile switch requires --from-runtime and --to-runtime.\n${usage()}`);
+  }
+  if (fromRuntime === targetRuntime) {
+    throw new Error('Profile switch requires two different runtimes.');
+  }
+  if (options.baseDir && !options.sourceBaseDir && !options.targetBaseDir) {
+    throw new Error(
+      'Profile switch cannot use one shared --base-dir because source and target runtime profiles must stay independent. Use --source-base-dir and --target-base-dir, or omit custom base directories.',
+    );
+  }
+  applyRuntimeEnv(targetRuntime);
+  const profileName = resolveProfileOption(options);
+  const sourceBaseDir = options.sourceBaseDir ?? options.baseDir;
+  const targetBaseDir = options.targetBaseDir ?? options.baseDir;
+  const sourceLocal = readLocalProfileSyncMetadata({
+    profileName,
+    runtimeType: fromRuntime,
+    baseDir: sourceBaseDir,
+  });
+  const targetPaths = resolveLocalProfilePaths({
+    profileName,
+    runtimeType: targetRuntime,
+    baseDir: targetBaseDir,
+  });
+  if (sourceLocal.profileDir === targetPaths.profileDir) {
+    throw new Error(
+      `Profile switch requires separate source and target folders, but both resolve to ${sourceLocal.profileDir}. Use distinct --source-base-dir and --target-base-dir values.`,
+    );
+  }
+  const config = loadConfig();
+  const metadataAgentId = typeof sourceLocal.metadata.agent_id === 'string' ? sourceLocal.metadata.agent_id : null;
+  const sourceProjectionId = typeof sourceLocal.metadata.projection_id === 'string' ? sourceLocal.metadata.projection_id : null;
+  const sourceProfileHash = typeof sourceLocal.metadata.profile_hash === 'string' ? sourceLocal.metadata.profile_hash : null;
+  if (!sourceProjectionId) {
+    throw new Error('Source local profile metadata is missing projection_id. Run profile sync before switching runtimes.');
+  }
+  const agentId = resolveAgentId(options, config.oauthAgentId ?? metadataAgentId);
+  assertLocalProfileAgentBoundary(metadataAgentId, agentId, 'switching runtime');
+  const tokenId = resolveTokenId(config.tokenId, config.oauthTokenId);
+  const handoffNote = options.handoffNote?.trim() || null;
+  const client = new SignedApiClient(config);
+
+  const connection = await client.registerConnection('profile-switch');
+  await client.heartbeat(connection.id, 'online', 'profile-switch');
+  const handoff = await client.prepareRuntimeHandoff({
+    agent_id: agentId,
+    handoff_note: handoffNote,
+    source_profile_hash: sourceProfileHash,
+    source_projection_id: sourceProjectionId,
+    source_runtime_type: fromRuntime,
+    target_connection_id: connection.id,
+    target_local_profile_key: targetPaths.localProfileKey,
+    target_runtime_type: targetRuntime,
+  });
+  const { projection } = await client.bindLocalProfileProjection(agentId, {
+    runtime_type: targetRuntime,
+    local_profile_key: targetPaths.localProfileKey,
+    token_id: tokenId,
+    connection_id: connection.id,
+    local_path_hint: targetPaths.profileDir,
+    sync_policy: {
+      mode: 'manual',
+      command: '6ducklearn-connector profile switch',
+      source_runtime_type: fromRuntime,
+    },
+  });
+  const pull = await client.pullLocalProfileProjection(projection.id);
+  const applied = applyLocalProfileProjection({
+    profileName,
+    runtimeType: targetRuntime,
+    baseDir: targetBaseDir,
+    pullResult: pull,
+  });
+  const ack = await client.ackLocalProfileProjectionSync(
+    applied.projectionId,
+    applied.syncId,
+    applied.profileHash,
+  );
+  recordLocalProfileHandoff({
+    profileName,
+    runtimeType: targetRuntime,
+    baseDir: targetBaseDir,
+    sourceRuntimeType: fromRuntime,
+    sourceLocalProfileKey: sourceLocal.localProfileKey,
+    sourceProjectionId,
+    sourceProfileHash,
+    handoffEventId: handoff.handoff_contract.handoff_event_id ?? null,
+    handoffNote,
+  });
+
+  console.log(`[6ducklearn-connector] Switched Local Profile Projection: ${sourceLocal.localProfileKey} -> ${applied.localProfileKey}`);
+  console.log(`[6ducklearn-connector] Agent ID: ${applied.agentId}`);
+  console.log(`[6ducklearn-connector] Handoff event: ${handoff.handoff_contract.handoff_event_id ?? 'recorded'}`);
+  console.log(`[6ducklearn-connector] Target projection ID: ${applied.projectionId}`);
+  console.log(`[6ducklearn-connector] Sync status: ${ack.sync.status}`);
+  console.log('[6ducklearn-connector] Device-local state was not transferred; only canonical profile context was projected.');
+}
+
 export async function runProfileCommand(argv = process.argv.slice(2)): Promise<void> {
   const command = argv[0];
   if (command === 'profile') {
@@ -260,6 +380,10 @@ export async function runProfileCommand(argv = process.argv.slice(2)): Promise<v
     }
     if (subcommand === 'propose') {
       await runPropose(argv.slice(2));
+      return;
+    }
+    if (subcommand === 'switch') {
+      await runSwitch(argv.slice(2));
       return;
     }
   }
