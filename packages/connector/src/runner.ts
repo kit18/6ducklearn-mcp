@@ -15,6 +15,8 @@ import type {
   RuntimeApprovalRequest,
   RuntimeApprovalRule,
   RuntimeApprovalRules,
+  RuntimeCapabilities,
+  RuntimeHealth,
   RuntimeInputItem,
   RuntimeSandboxPolicy,
   SessionAttachment,
@@ -40,6 +42,8 @@ type WaitForApprovalParams = {
   turnId: string;
   runtimeThreadId: string;
   runtimeTurnId?: string;
+  leaseToken?: string | null;
+  runtimeAttempt?: number | null;
   request: RuntimeApprovalRequest;
 };
 
@@ -95,6 +99,42 @@ function describeTransientConnectorNetworkError(error: unknown): string {
   }
 
   return error instanceof Error && error.message ? error.message : 'network request failed';
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error && error.message ? error.message : String(error);
+}
+
+function capabilitiesWithHealth(runtime: RuntimeAdapter, health: RuntimeHealth): RuntimeCapabilities {
+  return {
+    ...runtime.getCapabilities(),
+    runtime_health: health,
+  };
+}
+
+function runtimeHealthStatus(health: RuntimeHealth) {
+  return health.ok ? 'healthy' : 'error';
+}
+
+async function readRuntimeHealth(
+  runtime: RuntimeAdapter,
+  runtimeVersion: string | null,
+): Promise<RuntimeHealth> {
+  try {
+    const health = await runtime.checkHealth();
+    return {
+      ...health,
+      runtime_version: health.runtime_version ?? runtimeVersion,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 'unhealthy',
+      checked_at: new Date().toISOString(),
+      runtime_version: runtimeVersion,
+      message: describeError(error),
+    };
+  }
 }
 
 function turnStateLabel(status: string): string {
@@ -462,19 +502,19 @@ export function resolveCodexRuntimePolicy(token: RuntimePolicyToken): RuntimePol
 
   if ((token?.approval_level ?? 'approve-risky') === 'trust-all') {
     approvalRules.external_api = 'auto';
-    approvalRules.pkm_write = 'auto';
   } else if ((token?.approval_level ?? 'approve-risky') === 'approve-all') {
     approvalRules.external_api = 'require_approval';
     approvalRules.pkm_write = 'require_approval';
   }
 
+  if (approvalRules.pkm_write === 'auto') {
+    approvalRules.pkm_write = 'require_approval';
+  }
+
   return {
     approvalRules,
-    threadSandbox: approvalRules.pkm_write === 'auto' ? 'workspace-write' : { 'read-only': null },
-    turnSandboxPolicy:
-      approvalRules.pkm_write === 'auto'
-        ? 'workspace-write'
-        : { type: 'readOnly', access: { type: 'fullAccess' }, networkAccess: false },
+    threadSandbox: { 'read-only': null },
+    turnSandboxPolicy: { type: 'readOnly', access: { type: 'fullAccess' }, networkAccess: false },
   };
 }
 
@@ -489,7 +529,7 @@ function createRuntimeAdapter(config = loadConfig()): RuntimeAdapter {
 }
 
 async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalResolution> {
-  const { api, connectionId, turnId, runtimeThreadId, runtimeTurnId, request } = params;
+  const { api, connectionId, turnId, runtimeThreadId, runtimeTurnId, leaseToken, runtimeAttempt, request } = params;
   const created = await api.createApproval({
     actionType: request.actionType,
     previewHtml: request.previewHtml,
@@ -502,14 +542,18 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
     turnId,
     runtimeThreadId,
     runtimeTurnId,
+    leaseToken,
+    runtimeAttempt,
     events: [
       {
         event_type: 'approval.requested',
         payload: {
           approval_id: created.approval_id,
           action_type: request.actionType,
+          request_id: request.requestId,
           request_method: request.requestMethod,
           label: request.requestMethod,
+          ...(request.metadata ?? {}),
         },
       },
     ],
@@ -523,6 +567,8 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
         turnId,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         events: [
           {
             event_type: 'approval.resolved',
@@ -545,6 +591,8 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
         turnId,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         events: [
           {
             event_type: 'approval.resolved',
@@ -564,6 +612,8 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
         turnId,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         events: [
           {
             event_type: 'approval.resolved',
@@ -582,6 +632,8 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
       turnId,
       runtimeThreadId,
       runtimeTurnId,
+      leaseToken,
+      runtimeAttempt,
       state: 'claimed',
       events: [],
     });
@@ -592,6 +644,8 @@ async function waitForApproval(params: WaitForApprovalParams): Promise<ApprovalR
         turnId,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         events: [
           {
             event_type: 'approval.resolved',
@@ -622,14 +676,33 @@ export async function runConnector(): Promise<void> {
     runtime.ensureSupportedVersion(runtimeVersion);
   }
 
-  const connection = await api.registerConnection(runtimeVersion);
+  let lastRuntimeHealth = await readRuntimeHealth(runtime, runtimeVersion);
+  const connection = await api.registerConnection(
+    lastRuntimeHealth.runtime_version ?? runtimeVersion,
+    capabilitiesWithHealth(runtime, lastRuntimeHealth),
+  );
   console.log(`[6ducklearn-connector] connection registered: ${connection.id}`);
 
   let shuttingDown = false;
+  let heartbeatInFlight = false;
   const heartbeatTimer = setInterval(() => {
-    void api
-      .heartbeat(connection.id, 'online', runtimeVersion)
-      .catch((error) => console.warn('[6ducklearn-connector] heartbeat failed:', error));
+    if (heartbeatInFlight) {
+      return;
+    }
+    heartbeatInFlight = true;
+    void (async () => {
+      lastRuntimeHealth = await readRuntimeHealth(runtime, runtimeVersion);
+      await api.heartbeat(
+        connection.id,
+        runtimeHealthStatus(lastRuntimeHealth),
+        lastRuntimeHealth.runtime_version ?? runtimeVersion,
+        capabilitiesWithHealth(runtime, lastRuntimeHealth),
+      );
+    })()
+      .catch((error) => console.warn('[6ducklearn-connector] heartbeat failed:', error))
+      .finally(() => {
+        heartbeatInFlight = false;
+      });
   }, config.heartbeatIntervalMs);
 
   const shutdown = async (): Promise<void> => {
@@ -639,7 +712,18 @@ export async function runConnector(): Promise<void> {
     shuttingDown = true;
     clearInterval(heartbeatTimer);
     try {
-      await api.heartbeat(connection.id, 'offline', runtimeVersion);
+      await api.heartbeat(
+        connection.id,
+        'offline',
+        lastRuntimeHealth.runtime_version ?? runtimeVersion,
+        capabilitiesWithHealth(runtime, {
+          ...lastRuntimeHealth,
+          ok: false,
+          status: 'unhealthy',
+          checked_at: new Date().toISOString(),
+          message: 'Connector stopped.',
+        }),
+      );
     } catch {
       // Best effort only.
     }
@@ -655,6 +739,21 @@ export async function runConnector(): Promise<void> {
 
   while (!shuttingDown) {
     try {
+      lastRuntimeHealth = await readRuntimeHealth(runtime, runtimeVersion);
+      if (!lastRuntimeHealth.ok) {
+        await api.heartbeat(
+          connection.id,
+          'error',
+          lastRuntimeHealth.runtime_version ?? runtimeVersion,
+          capabilitiesWithHealth(runtime, lastRuntimeHealth),
+        ).catch(() => undefined);
+        console.warn(
+          `[6ducklearn-connector] runtime unhealthy (${lastRuntimeHealth.message ?? lastRuntimeHealth.status}); dispatch paused`,
+        );
+        await sleep(Math.max(config.pollIntervalMs, 5000));
+        continue;
+      }
+
       const payload = await api.pullTurn(connection.id);
       if (!payload.turn || !payload.thread) {
         await sleep(config.pollIntervalMs);
@@ -662,11 +761,11 @@ export async function runConnector(): Promise<void> {
       }
 
       console.log(`[6ducklearn-connector] processing turn ${payload.turn.id}`);
-      await processTurn({
+      await processConnectorTurn({
         api,
         runtime,
         connectionId: connection.id,
-        runtimeVersion,
+        runtimeVersion: lastRuntimeHealth.runtime_version ?? runtimeVersion,
         payload,
       });
     } catch (error) {
@@ -680,13 +779,24 @@ export async function runConnector(): Promise<void> {
       }
 
       console.error('[6ducklearn-connector] loop error:', error);
-      await api.heartbeat(connection.id, 'error', runtimeVersion).catch(() => undefined);
+      await api.heartbeat(
+        connection.id,
+        'error',
+        lastRuntimeHealth.runtime_version ?? runtimeVersion,
+        capabilitiesWithHealth(runtime, {
+          ...lastRuntimeHealth,
+          ok: false,
+          status: 'unhealthy',
+          checked_at: new Date().toISOString(),
+          message: describeError(error),
+        }),
+      ).catch(() => undefined);
       await sleep(Math.max(config.pollIntervalMs, 5000));
     }
   }
 }
 
-async function processTurn(params: ProcessTurnParams): Promise<void> {
+export async function processConnectorTurn(params: ProcessTurnParams): Promise<void> {
   const { api, runtime, connectionId, payload } = params;
   if (!payload.turn || !payload.thread) {
     return;
@@ -694,6 +804,8 @@ async function processTurn(params: ProcessTurnParams): Promise<void> {
 
   const turn = payload.turn;
   const thread = payload.thread;
+  const leaseToken = typeof turn.lease_token === 'string' ? turn.lease_token : null;
+  const runtimeAttempt = typeof turn.runtime_attempt === 'number' ? turn.runtime_attempt : null;
   const runtimePolicy = resolveCodexRuntimePolicy(payload.token);
   const projectionMetadata = payload.projection?.metadata ?? payload.run?.projection_context ?? null;
   const sessionAttachments = payload.projection?.registry.default_session_attachments ?? [];
@@ -748,6 +860,8 @@ async function processTurn(params: ProcessTurnParams): Promise<void> {
         state,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         threadTitle: thread.title,
         errorMessage,
         events,
@@ -784,11 +898,19 @@ async function processTurn(params: ProcessTurnParams): Promise<void> {
     }, 250);
   };
 
-  await api.heartbeat(connectionId, 'online', params.runtimeVersion);
+  const turnRuntimeHealth = await readRuntimeHealth(runtime, params.runtimeVersion);
+  await api.heartbeat(
+    connectionId,
+    runtimeHealthStatus(turnRuntimeHealth),
+    turnRuntimeHealth.runtime_version ?? params.runtimeVersion,
+    capabilitiesWithHealth(runtime, turnRuntimeHealth),
+  );
   await api.push({
     connectionId,
     turnId: turn.id,
     runtimeThreadId,
+    leaseToken,
+    runtimeAttempt,
     threadTitle: thread.title,
   });
 
@@ -811,6 +933,8 @@ async function processTurn(params: ProcessTurnParams): Promise<void> {
         turnId: turn.id,
         runtimeThreadId,
         runtimeTurnId,
+        leaseToken,
+        runtimeAttempt,
         request,
       }),
     onEvent: async (event) => {

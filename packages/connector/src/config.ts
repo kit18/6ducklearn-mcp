@@ -69,9 +69,10 @@ function resolveRuntimeType(): RuntimeType {
 }
 
 export function loadConfig(): ConnectorConfig {
-  const runtimeType = resolveRuntimeType();
-  const codexCwd = readEnv('DUCK_CODEX_CWD', 'SIXDUCK_CODEX_CWD') ?? process.cwd();
-  const codexReasoning = readEnv('DUCK_CODEX_REASONING', 'SIXDUCK_CODEX_REASONING');
+	const runtimeType = resolveRuntimeType();
+	const codexCwd = readEnv('DUCK_CODEX_CWD', 'SIXDUCK_CODEX_CWD') ?? process.cwd();
+	const defaultCodexHome = join(homedir(), '.codex');
+	const codexReasoning = readEnv('DUCK_CODEX_REASONING', 'SIXDUCK_CODEX_REASONING');
   const codexSummary = readEnv('DUCK_CODEX_SUMMARY', 'SIXDUCK_CODEX_SUMMARY');
   const oauthSessionPath = readEnv('DUCK_OAUTH_SESSION_PATH', 'SIXDUCK_OAUTH_SESSION_PATH') ?? defaultOAuthSessionPath();
   const requestedOAuthTokenId = readEnv('DUCK_OAUTH_TOKEN_ID', 'SIXDUCK_OAUTH_TOKEN_ID')
@@ -134,7 +135,7 @@ export function loadConfig(): ConnectorConfig {
     runtimeType,
     pollIntervalMs: parseNumberEnv('DUCK_POLL_INTERVAL_MS', 2000, 'SIXDUCK_POLL_INTERVAL_MS'),
     heartbeatIntervalMs: parseNumberEnv('DUCK_HEARTBEAT_INTERVAL_MS', 20_000, 'SIXDUCK_HEARTBEAT_INTERVAL_MS'),
-    serviceName: readEnv('DUCK_SERVICE_NAME', 'SIXDUCK_SERVICE_NAME') ?? 'sixducklearn_connector',
+    serviceName: readEnv('DUCK_SERVICE_NAME', 'SIXDUCK_SERVICE_NAME') ?? '6ducklearn_connector',
     adapterVersion: readEnv('DUCK_CONNECTOR_VERSION', 'SIXDUCK_CONNECTOR_VERSION') ?? DEFAULT_ADAPTER_VERSION,
     codex: {
       model: readEnv('DUCK_CODEX_MODEL', 'SIXDUCK_CODEX_MODEL') ?? 'gpt-5.4',
@@ -142,14 +143,16 @@ export function loadConfig(): ConnectorConfig {
         codexReasoning === 'low' || codexReasoning === 'high'
           ? codexReasoning
           : 'medium',
-      summary:
-        codexSummary === 'auto' || codexSummary === 'detailed'
-          ? codexSummary
-          : 'concise',
-      cwd: codexCwd,
-      minVersion: readEnv('DUCK_CODEX_MIN_VERSION', 'SIXDUCK_CODEX_MIN_VERSION') ?? '0.117.0',
-      quietProfile: parseBooleanEnv('DUCK_CODEX_QUIET_PROFILE', true, 'SIXDUCK_CODEX_QUIET_PROFILE'),
-    },
+	      summary:
+	        codexSummary === 'auto' || codexSummary === 'detailed'
+	          ? codexSummary
+	          : 'concise',
+	      cwd: codexCwd,
+	      home: readEnv('DUCK_CODEX_HOME', 'SIXDUCK_CODEX_HOME') ?? null,
+	      sourceHome: readEnv('DUCK_CODEX_SOURCE_HOME', 'SIXDUCK_CODEX_SOURCE_HOME') ?? process.env.CODEX_HOME ?? defaultCodexHome,
+	      minVersion: readEnv('DUCK_CODEX_MIN_VERSION', 'SIXDUCK_CODEX_MIN_VERSION') ?? '0.117.0',
+	      quietProfile: parseBooleanEnv('DUCK_CODEX_QUIET_PROFILE', true, 'SIXDUCK_CODEX_QUIET_PROFILE'),
+	    },
     openclaw: {
       gatewayUrl: readEnv('DUCK_OPENCLAW_GATEWAY_URL', 'SIXDUCK_OPENCLAW_GATEWAY_URL') ?? 'ws://127.0.0.1:18789',
       gatewayToken: readEnv('DUCK_OPENCLAW_GATEWAY_TOKEN', 'SIXDUCK_OPENCLAW_GATEWAY_TOKEN') ?? null,

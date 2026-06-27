@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   CodexAppServerClient,
   buildCodexAppServerArgs,
+  createIsolatedCodexHome,
   isQuietProfileCodexStderrNoise,
 } from '../dist/codexAppServerClient.js';
 
@@ -110,6 +114,28 @@ test('CodexAppServerClient can opt into inherited local Codex config', () => {
   assert.deepEqual(buildCodexAppServerArgs(config), ['app-server']);
 });
 
+test('createIsolatedCodexHome copies auth metadata without user config', () => {
+  const sourceHome = mkdtempSync(join(tmpdir(), '6ducklearn-source-codex-home-'));
+  mkdirSync(join(sourceHome, 'plugins'), { recursive: true });
+  writeFileSync(join(sourceHome, 'auth.json'), '{"auth":"present"}\n', 'utf8');
+  writeFileSync(join(sourceHome, 'installation_id'), 'install-id\n', 'utf8');
+  writeFileSync(join(sourceHome, 'config.toml'), 'model = "local-config"\n', 'utf8');
+  const bridgeHome = createIsolatedCodexHome(sourceHome);
+
+  try {
+    assert.equal(readFileSync(join(bridgeHome, 'auth.json'), 'utf8'), '{"auth":"present"}\n');
+    assert.equal(readFileSync(join(bridgeHome, 'installation_id'), 'utf8'), 'install-id\n');
+    assert.equal(existsSync(join(bridgeHome, 'config.toml')), false);
+    assert.equal(existsSync(join(bridgeHome, 'plugins')), false);
+    assert.equal(existsSync(join(bridgeHome, 'sessions')), true);
+    assert.equal(existsSync(join(bridgeHome, 'log')), true);
+    assert.equal(existsSync(join(bridgeHome, 'tmp')), true);
+  } finally {
+    rmSync(sourceHome, { recursive: true, force: true });
+    rmSync(bridgeHome, { recursive: true, force: true });
+  }
+});
+
 test('CodexAppServerClient suppresses known quiet-profile stderr noise', () => {
   assert.equal(
     isQuietProfileCodexStderrNoise(
@@ -120,6 +146,24 @@ test('CodexAppServerClient suppresses known quiet-profile stderr noise', () => {
   assert.equal(
     isQuietProfileCodexStderrNoise(
       '{"level":"WARN","fields":{"message":"failed to warm featured plugin ids cache","error":"remote plugin sync request failed"}}',
+    ),
+    true,
+  );
+  assert.equal(
+    isQuietProfileCodexStderrNoise(
+      '{"level":"WARN","fields":{"message":"ignoring interface.defaultPrompt[0]: prompt must be at most 128 characters"}}',
+    ),
+    true,
+  );
+  assert.equal(
+    isQuietProfileCodexStderrNoise(
+      '{"level":"WARN","fields":{"message":"ignoring remote plugins missing from local marketplace during sync"}}',
+    ),
+    true,
+  );
+  assert.equal(
+    isQuietProfileCodexStderrNoise(
+      '{"level":"WARN","fields":{"message":"ignoring interface.icon_small: icon path must not contain \'..\'"}}',
     ),
     true,
   );
@@ -396,7 +440,7 @@ test('CodexAppServerClient forwards sandboxPolicy when starting turns', async ()
 
   assert.deepEqual(requestPayload, {
     threadId: 'thread-1',
-    input: [{ type: 'text', text: 'Write the file' }],
+    input: [{ type: 'text', text: 'Write the file', text_elements: [] }],
     model: 'gpt-5.4',
     effort: 'medium',
     summary: 'concise',
@@ -457,7 +501,7 @@ test('CodexAppServerClient forwards structured input items when provided', async
   assert.deepEqual(requestPayload, {
     threadId: 'thread-1',
     input: [
-      { type: 'text', text: 'Use the attached skill' },
+      { type: 'text', text: 'Use the attached skill', text_elements: [] },
       { type: 'skill', name: 'research-pack', path: '/tmp/research-pack/SKILL.md' },
     ],
     model: 'gpt-5.4',
@@ -538,4 +582,88 @@ test('CodexAppServerClient auto-rejects approvals for denied action types', asyn
     id: 42,
     result: { decision: 'decline' },
   });
+});
+
+test('CodexAppServerClient can launch a real Codex app-server and create a thread', {
+  skip: process.env.SIXDUCK_RUN_REAL_CODEX_E2E === '1'
+    ? false
+    : 'set SIXDUCK_RUN_REAL_CODEX_E2E=1 to launch the local Codex CLI',
+  timeout: 30_000,
+}, async () => {
+  const tempWorkspace = mkdtempSync(join(tmpdir(), '6ducklearn-real-codex-e2e-'));
+  const client = new CodexAppServerClient(buildConfig({
+    codex: {
+      cwd: tempWorkspace,
+      model: process.env.SIXDUCK_REAL_CODEX_MODEL ?? 'gpt-5.4',
+      quietProfile: true,
+    },
+  }));
+
+  try {
+    await client.start();
+    const version = await client.detectRuntimeVersion();
+    client.ensureSupportedVersion(version);
+    const health = await client.checkHealth();
+    assert.equal(health.ok, true);
+
+    const threadId = await client.ensureThread({
+      systemPrompt: 'You are running a 6DuckLearn connector integration test. Reply only with OK.',
+      sandbox: { 'read-only': null },
+    });
+    assert.equal(typeof threadId, 'string');
+    assert.ok(threadId.length > 0);
+  } finally {
+    await client.stop().catch(() => undefined);
+    rmSync(tempWorkspace, { recursive: true, force: true });
+  }
+});
+
+test('CodexAppServerClient can drive a real Codex model turn', {
+  skip: process.env.SIXDUCK_RUN_REAL_CODEX_TURN_E2E === '1'
+    ? false
+    : 'set SIXDUCK_RUN_REAL_CODEX_TURN_E2E=1 to spend a real Codex model turn',
+  timeout: 180_000,
+}, async () => {
+  const tempWorkspace = mkdtempSync(join(tmpdir(), '6ducklearn-real-codex-turn-e2e-'));
+  const client = new CodexAppServerClient(buildConfig({
+    codex: {
+      cwd: tempWorkspace,
+      model: process.env.SIXDUCK_REAL_CODEX_MODEL ?? 'gpt-5.4',
+      quietProfile: true,
+    },
+  }));
+  const events = [];
+
+  try {
+    await client.start();
+    const version = await client.detectRuntimeVersion();
+    client.ensureSupportedVersion(version);
+    const health = await client.checkHealth();
+    assert.equal(health.ok, true);
+
+    const threadId = await client.ensureThread({
+      systemPrompt: 'You are running a 6DuckLearn connector integration test. Reply only with OK.',
+      sandbox: { 'read-only': null },
+    });
+
+    await client.runTurn({
+      threadId,
+      inputText: 'Reply exactly: OK',
+      sandboxPolicy: { type: 'readOnly', access: { type: 'fullAccess' }, networkAccess: false },
+      onEvent: async (event) => {
+        events.push(event);
+      },
+    });
+
+    assert.equal(events.some((event) => event.type === 'turn.started'), true);
+    assert.equal(events.some((event) => event.type === 'turn.completed' && event.status === 'completed'), true);
+    const assistantText = events
+      .filter((event) => event.type === 'assistant.completed')
+      .map((event) => event.text)
+      .join('\n');
+    assert.match(assistantText, /\bOK\b/i);
+  } finally {
+    await client.stop().catch(() => undefined);
+    rmSync(tempWorkspace, { recursive: true, force: true });
+  }
 });

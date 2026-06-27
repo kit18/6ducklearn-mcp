@@ -8,6 +8,7 @@ import {
   createLocalProfile,
   normalizeProfileName,
   recordLocalProfileHandoff,
+  recordLocalProfileMemoryBranchFork,
   readLocalProfileSyncMetadata,
   recordLocalProfileProposalPush,
   resolveLocalProfilePaths,
@@ -64,8 +65,8 @@ test('applyLocalProfileProjection writes approved config and skills without memo
             role_archetype: 'researcher',
             strategy_pack_key: null,
             skill_pack_keys: ['deep_research'],
-            memory_branch_id: null,
-            memory_profile_ids: [],
+            memory_branch_id: 'memory-branch-1',
+            memory_profile_ids: ['memory-branch-1'],
             runtime_type: 'hermes',
           },
           system_prompt: 'You are a research analyst.',
@@ -99,9 +100,13 @@ test('applyLocalProfileProjection writes approved config and skills without memo
     assert.equal(existsSync(join(paths.skillsDir, '6ducklearn', 'deep_research', 'SKILL.md')), true);
     assert.match(readFileSync(join(paths.profileDir, 'SYSTEM_PROMPT.md'), 'utf8'), /research analyst/);
     assert.match(config, /last_profile_hash: "hash-1"/);
+    assert.match(config, /branch_id: "memory-branch-1"/);
     assert.equal(metadata.agent_id, 'agent-1');
+    assert.equal(metadata.memory_branch_id, 'memory-branch-1');
+    assert.deepEqual(metadata.memory_profile_ids, ['memory-branch-1']);
     assert.equal(metadata.sync_status, 'applied');
     assert.match(memoryReadme, /does not pull canonical memory/);
+    assert.match(memoryReadme, /Selected Memory Branch: memory-branch-1/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -215,6 +220,69 @@ test('recordLocalProfileHandoff records source runtime without copying memory co
     assert.equal(updated.metadata.last_handoff.source_runtime_type, 'codex');
     assert.equal(updated.metadata.last_handoff.target_runtime_type, 'hermes');
     assert.equal(updated.metadata.last_handoff.transfer_policy, 'canonical_profile_context_only');
+    assert.match(readFileSync(join(updated.memoryDir, 'README.md'), 'utf8'), /does not pull canonical memory/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('recordLocalProfileMemoryBranchFork records branch lineage locally without memory content', () => {
+  const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-'));
+  try {
+    applyLocalProfileProjection({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+      pullResult: {
+        projection: {
+          id: 'projection-1',
+          agent_id: 'agent-1',
+          connection_id: 'connection-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-1',
+          status: 'pending',
+          result_profile_hash: 'hash-1',
+        },
+        runtime_projection: {
+          agent_id: 'agent-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          system_prompt: 'You are a research analyst.',
+          projection_metadata: {
+            agent_profile_id: 'agent-1',
+            role_archetype: 'researcher',
+            strategy_pack_key: null,
+            skill_pack_keys: [],
+            memory_branch_id: 'memory-branch-target',
+            memory_profile_ids: ['memory-branch-target'],
+            runtime_type: 'codex',
+          },
+          skill_packs: [],
+        },
+        skipped_locks: [],
+      },
+    });
+
+    const updated = recordLocalProfileMemoryBranchFork({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+      sourceMemoryBranchId: 'memory-branch-source',
+      targetMemoryBranchId: 'memory-branch-target',
+      branchName: 'Asia thesis',
+      forkEventId: 'event-branch',
+      forkNote: 'Explore one market separately.',
+      forkedAt: '2026-06-28T02:00:00.000Z',
+    });
+
+    assert.equal(updated.metadata.memory_branch_id, 'memory-branch-target');
+    assert.equal(updated.metadata.last_memory_branch_fork.fork_event_id, 'event-branch');
+    assert.equal(updated.metadata.last_memory_branch_fork.source_memory_branch_id, 'memory-branch-source');
+    assert.equal(updated.metadata.last_memory_branch_fork.target_memory_branch_id, 'memory-branch-target');
     assert.match(readFileSync(join(updated.memoryDir, 'README.md'), 'utf8'), /does not pull canonical memory/);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

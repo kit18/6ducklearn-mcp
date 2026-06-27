@@ -3,6 +3,7 @@ import type {
   RuntimeAdapter,
   RuntimeCapabilities,
   RuntimeEvent,
+  RuntimeHealth,
   RuntimeInputItem,
   RuntimeThreadContext,
 } from './types.js';
@@ -315,6 +316,34 @@ export class OpenClawGatewayClient implements RuntimeAdapter {
       return null;
     } catch {
       return null;
+    }
+  }
+
+  async checkHealth(): Promise<RuntimeHealth> {
+    const checkedAt = new Date().toISOString();
+    try {
+      await this.start();
+      const payload = await this.request('status', {});
+      const version =
+        typeof payload.version === 'string'
+          ? payload.version
+          : typeof (payload.gateway as Record<string, unknown> | undefined)?.version === 'string'
+            ? String((payload.gateway as Record<string, unknown>).version)
+            : null;
+      return {
+        ok: true,
+        status: 'healthy',
+        checked_at: checkedAt,
+        runtime_version: version,
+        details: payload,
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 'unhealthy',
+        checked_at: checkedAt,
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 

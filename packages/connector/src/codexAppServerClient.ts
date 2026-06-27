@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createInterface, type Interface } from 'node:readline';
 import type {
   ApprovalResolution,
@@ -7,6 +10,7 @@ import type {
   RuntimeApprovalRequest,
   RuntimeCapabilities,
   RuntimeEvent,
+  RuntimeHealth,
   RuntimeInputItem,
   RuntimeUsage,
   RuntimeThreadContext,
@@ -43,6 +47,7 @@ type RuntimeSandboxPolicy = string | Record<string, unknown>;
 type RuntimeApprovalRule = 'auto' | 'require_approval' | 'deny';
 type RuntimeApprovalRules = Partial<Record<RuntimeApprovalRequest['actionType'], RuntimeApprovalRule>>;
 const TOKEN_USAGE_GRACE_MS = 150;
+const CODEX_BRIDGE_HOME_FILES = ['auth.json', 'installation_id', 'models_cache.json', 'version.json'];
 
 export function buildCodexAppServerArgs(config: ConnectorConfig) {
   const args = ['app-server'];
@@ -63,11 +68,14 @@ export function buildCodexAppServerArgs(config: ConnectorConfig) {
 
 export function isQuietProfileCodexStderrNoise(line: string) {
   return (
-    /failed to load skill .* invalid YAML/i.test(line) ||
-    /failed to warm featured plugin ids cache/i.test(line) ||
-    (
-      /rmcp::transport::worker/i.test(line) &&
-      /AuthRequired|No access token was provided/i.test(line)
+	    /failed to load skill .* invalid YAML/i.test(line) ||
+	    /failed to warm featured plugin ids cache/i.test(line) ||
+	    /ignoring interface\.defaultPrompt.*prompt must be at most 128 characters/i.test(line) ||
+	    /ignoring remote plugins missing from local marketplace during sync/i.test(line) ||
+	    /ignoring interface\.icon_(small|large): icon path must not contain '\.\.'/i.test(line) ||
+	    (
+	      /rmcp::transport::worker/i.test(line) &&
+	      /AuthRequired|No access token was provided/i.test(line)
     )
   );
 }
@@ -120,6 +128,38 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function defaultCodexHome() {
+  return process.env.CODEX_HOME ?? join(homedir(), '.codex');
+}
+
+export function createIsolatedCodexHome(sourceHome: string) {
+  const bridgeHome = mkdtempSync(join(tmpdir(), '6ducklearn-codex-home-'));
+
+  for (const directory of ['sessions', 'log', 'tmp']) {
+    mkdirSync(join(bridgeHome, directory), { recursive: true });
+  }
+
+  for (const fileName of CODEX_BRIDGE_HOME_FILES) {
+    const sourcePath = join(sourceHome, fileName);
+    if (existsSync(sourcePath)) {
+      copyFileSync(sourcePath, join(bridgeHome, fileName));
+    }
+  }
+
+  return bridgeHome;
+}
+
+function toCodexUserInput(item: RuntimeInputItem) {
+  if (item.type === 'text') {
+    return {
+      ...item,
+      text_elements: [],
+    };
+  }
+
+  return item;
+}
+
 export class CodexAppServerClient implements RuntimeAdapter {
   readonly runtimeType = 'codex' as const;
 
@@ -131,18 +171,22 @@ export class CodexAppServerClient implements RuntimeAdapter {
   private notificationHandlers = new Set<NotificationHandler>();
   private serverRequestHandlers = new Set<ServerRequestHandler>();
   private latestUsageByThreadId = new Map<string, RuntimeUsage>();
+  private isolatedCodexHome: string | null = null;
 
   constructor(private readonly config: ConnectorConfig) {}
 
   async start() {
     if (this.process) return;
 
+    const codexHome = this.resolveCodexHomeForProcess();
     if (this.config.codex.quietProfile) {
-      console.log('[6ducklearn-connector] using quiet Codex bridge profile; local MCP servers and plugins are disabled for this bridge');
+      const mode = codexHome === this.isolatedCodexHome ? 'isolated' : 'configured';
+      console.log(`[6ducklearn-connector] using ${mode} quiet Codex bridge profile; inherited local Codex config is not loaded into this bridge`);
     }
 
     const proc = spawn('codex', buildCodexAppServerArgs(this.config), {
       cwd: this.config.codex.cwd,
+      env: codexHome ? { ...process.env, CODEX_HOME: codexHome } : process.env,
       stdio: ['pipe', 'pipe', this.config.codex.quietProfile ? 'pipe' : 'inherit'],
     });
     this.process = proc;
@@ -156,6 +200,7 @@ export class CodexAppServerClient implements RuntimeAdapter {
       this.process = null;
       this.readline = null;
       this.stderrReadline = null;
+      this.cleanupIsolatedCodexHome();
     });
 
     const stderr = proc.stderr;
@@ -168,10 +213,11 @@ export class CodexAppServerClient implements RuntimeAdapter {
       });
     }
 
-    const stdout = proc.stdout;
-    if (!stdout) {
-      throw new Error('codex app-server stdout is not readable');
-    }
+	    const stdout = proc.stdout;
+	    if (!stdout) {
+	      this.cleanupIsolatedCodexHome();
+	      throw new Error('codex app-server stdout is not readable');
+	    }
 
     this.readline = createInterface({ input: stdout });
     this.readline.on('line', (line) => {
@@ -221,18 +267,23 @@ export class CodexAppServerClient implements RuntimeAdapter {
       }
     });
 
-    await this.request('initialize', {
-      clientInfo: {
-        name: this.config.serviceName,
-        title: '6duck Connector',
-        version: this.config.adapterVersion,
-      },
-      capabilities: {
-        experimentalApi: true,
-      },
-    });
-    this.notify('initialized', {});
-  }
+	    try {
+	      await this.request('initialize', {
+	        clientInfo: {
+	          name: this.config.serviceName,
+	          title: '6duck Connector',
+	          version: this.config.adapterVersion,
+	        },
+	        capabilities: {
+	          experimentalApi: true,
+	        },
+	      });
+	      this.notify('initialized', {});
+	    } catch (error) {
+	      await this.stop().catch(() => undefined);
+	      throw error;
+	    }
+	  }
 
   async stop() {
     if (this.readline) {
@@ -249,6 +300,30 @@ export class CodexAppServerClient implements RuntimeAdapter {
       this.process.kill();
       this.process = null;
     }
+
+    this.cleanupIsolatedCodexHome();
+  }
+
+  private resolveCodexHomeForProcess() {
+    if (this.config.codex.home) {
+      return this.config.codex.home;
+    }
+
+    if (!this.config.codex.quietProfile) {
+      return null;
+    }
+
+    if (!this.isolatedCodexHome) {
+      this.isolatedCodexHome = createIsolatedCodexHome(this.config.codex.sourceHome ?? defaultCodexHome());
+    }
+
+    return this.isolatedCodexHome;
+  }
+
+  private cleanupIsolatedCodexHome() {
+    if (!this.isolatedCodexHome) return;
+    rmSync(this.isolatedCodexHome, { recursive: true, force: true });
+    this.isolatedCodexHome = null;
   }
 
   async detectRuntimeVersion() {
@@ -269,6 +344,37 @@ export class CodexAppServerClient implements RuntimeAdapter {
       } catch {
         return null;
       }
+    }
+  }
+
+  async checkHealth(): Promise<RuntimeHealth> {
+    const checkedAt = new Date().toISOString();
+    if (!this.process) {
+      return {
+        ok: false,
+        status: 'unhealthy',
+        checked_at: checkedAt,
+        message: 'Codex app-server process is not running.',
+      };
+    }
+
+    try {
+      const authStatus = await this.request('getAuthStatus', {});
+      return {
+        ok: true,
+        status: 'healthy',
+        checked_at: checkedAt,
+        details: {
+          auth_status: authStatus,
+        },
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 'unhealthy',
+        checked_at: checkedAt,
+        message: error instanceof Error ? error.message : String(error),
+      };
     }
   }
 
@@ -537,9 +643,10 @@ export class CodexAppServerClient implements RuntimeAdapter {
     });
 
     try {
-      const input = params.inputItems && params.inputItems.length > 0
+      const runtimeInput = params.inputItems && params.inputItems.length > 0
         ? params.inputItems
-        : [{ type: 'text', text: params.inputText }];
+        : [{ type: 'text' as const, text: params.inputText }];
+      const input = runtimeInput.map(toCodexUserInput);
 
       const result = await this.request('turn/start', {
         threadId: params.threadId,
