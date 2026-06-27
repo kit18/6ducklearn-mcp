@@ -78,6 +78,44 @@ export interface RuntimeConnectionRecord {
   adapter_version?: string | null;
 }
 
+export interface LocalProfileProjection {
+  id: string;
+  user_id?: string;
+  agent_id: string;
+  profile_alias_id?: string | null;
+  connection_id: string;
+  runtime_type: RuntimeType;
+  local_profile_key: string;
+  projection_key?: string;
+  projection_version?: number;
+  sync_policy?: Record<string, unknown> | null;
+  status: string;
+  last_profile_hash?: string | null;
+  last_heartbeat_at?: string | null;
+  last_pull_at?: string | null;
+  last_push_proposal_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface BindLocalProfileProjectionInput {
+  runtime_type: RuntimeType;
+  local_profile_key: string;
+  token_id: string;
+  connection_id: string;
+  local_path_hint?: string;
+  profile_alias?: string;
+  profile_alias_id?: string;
+  sync_policy?: Record<string, unknown>;
+}
+
+export interface SkippedSkillLock {
+  skill_key: string;
+  lock_id: string;
+  reason: string | null;
+  runtime_type: string | null;
+}
+
 export interface ProjectionMetadata {
   agent_profile_id: string | null;
   role_archetype: string | null;
@@ -158,6 +196,44 @@ export interface RuntimeProjectionPayload {
     default_session_attachments: SessionAttachment[];
   };
   instructions?: ProjectionInstructionsPayload | null;
+}
+
+export interface PullLocalProfileProjectionResult {
+  projection: LocalProfileProjection;
+  sync: {
+    id: string;
+    direction?: string;
+    trigger_kind?: string;
+    status?: string;
+    base_profile_hash?: string | null;
+    result_profile_hash?: string | null;
+    skipped_locks?: SkippedSkillLock[];
+    [key: string]: unknown;
+  };
+  runtime_projection: {
+    agent_id: string;
+    runtime_type: RuntimeType;
+    local_profile_key: string;
+    projection_metadata?: ProjectionMetadata | null;
+    logical_agent?: Record<string, unknown> | null;
+    system_prompt?: string;
+    approval_level?: string;
+    data_boundaries?: Record<string, unknown> | null;
+    skill_packs: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  skipped_locks: SkippedSkillLock[];
+  invariants?: Record<string, unknown>;
+}
+
+export interface AckLocalProfileProjectionSyncResult {
+  projection: LocalProfileProjection;
+  sync: {
+    id: string;
+    status: string;
+    result_profile_hash?: string | null;
+    [key: string]: unknown;
+  };
 }
 
 export interface ThreadRunProvenance {

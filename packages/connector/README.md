@@ -38,6 +38,25 @@ SIXDUCK_PUBLIC_BASE_URL=https://6ducklearn.com node packages/connector/dist/inde
 
 The login flow stores a local OAuth session in your home directory. Avoid committing generated session files or copied credentials.
 
+## Local Profile Projection Sync
+
+Create an independent local profile folder for a specific runtime:
+
+```bash
+node packages/connector/dist/index.js profile create research-analyst --runtime hermes
+```
+
+Sync the local profile with its 6DuckLearn Agent Profile:
+
+```bash
+SIXDUCK_SUPABASE_URL=<your-6ducklearn-supabase-functions-url> \
+SIXDUCK_RUNTIME_TYPE=hermes \
+SIXDUCK_AGENT_ID=<agent_id> \
+node packages/connector/dist/index.js profile sync --profile research-analyst
+```
+
+Profile Sync binds the local profile key, pulls approved config and unlocked skill packs, writes `config.yaml`, `SYSTEM_PROMPT.md`, `skills/6ducklearn/*/SKILL.md`, and `.6ducklearn/profile-sync.json`, then acknowledges the sync hash back to 6DuckLearn. Canonical memory is not pulled into local files; local learning must return as reviewable memory proposals.
+
 ## Run With Codex
 
 ```bash
