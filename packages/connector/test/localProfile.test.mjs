@@ -7,6 +7,8 @@ import {
   applyLocalProfileProjection,
   createLocalProfile,
   normalizeProfileName,
+  readLocalProfileSyncMetadata,
+  recordLocalProfileProposalPush,
   resolveLocalProfilePaths,
 } from '../dist/localProfile.js';
 
@@ -106,4 +108,59 @@ test('applyLocalProfileProjection writes approved config and skills without memo
 
 test('normalizeProfileName rejects blank names', () => {
   assert.throws(() => normalizeProfileName('@@@'), /Profile name/);
+});
+
+test('recordLocalProfileProposalPush updates local sync metadata without touching memory content', () => {
+  const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-'));
+  try {
+    applyLocalProfileProjection({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+      pullResult: {
+        projection: {
+          id: 'projection-1',
+          agent_id: 'agent-1',
+          connection_id: 'connection-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-1',
+          status: 'pending',
+          result_profile_hash: 'hash-1',
+        },
+        runtime_projection: {
+          agent_id: 'agent-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          system_prompt: 'You are a research analyst.',
+          skill_packs: [],
+        },
+        skipped_locks: [],
+      },
+    });
+
+    const updated = recordLocalProfileProposalPush({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+      createdCount: 1,
+      proposalCount: 1,
+      pushedAt: '2026-06-28T00:00:00.000Z',
+    });
+    const reread = readLocalProfileSyncMetadata({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+    });
+
+    assert.equal(updated.metadata.projection_id, 'projection-1');
+    assert.equal(reread.metadata.last_push_proposal_at, '2026-06-28T00:00:00.000Z');
+    assert.equal(reread.metadata.last_push_proposal_created_count, 1);
+    assert.match(readFileSync(join(reread.memoryDir, 'README.md'), 'utf8'), /does not pull canonical memory/);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });

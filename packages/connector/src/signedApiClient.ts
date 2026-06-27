@@ -14,6 +14,8 @@ import type {
   PulledTurnPayload,
   RuntimeConnectionRecord,
   SpawnExpertRequest,
+  SubmitLocalProfileMemoryProposalsInput,
+  SubmitLocalProfileMemoryProposalsResult,
 } from './types.js';
 import { writeOAuthSession } from './oauthSession.js';
 
@@ -171,6 +173,16 @@ export class SignedApiClient {
     return this.controlPlaneJson<AckLocalProfileProjectionSyncResult>(
       `/projections/${encodeURIComponent(projectionId)}/sync/${encodeURIComponent(syncId)}/ack`,
       { method: 'POST', body: { profile_hash: profileHash } },
+    );
+  }
+
+  submitLocalProfileMemoryProposals(
+    projectionId: string,
+    input: SubmitLocalProfileMemoryProposalsInput,
+  ): Promise<SubmitLocalProfileMemoryProposalsResult> {
+    return this.controlPlaneJson<SubmitLocalProfileMemoryProposalsResult>(
+      `/projections/${encodeURIComponent(projectionId)}/memory-proposals`,
+      { method: 'POST', body: input },
     );
   }
 
