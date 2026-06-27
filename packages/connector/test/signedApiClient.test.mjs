@@ -369,6 +369,54 @@ test('SignedApiClient forks a memory branch through the control plane', async ()
   }
 });
 
+test('SignedApiClient lists memory branches through the control plane', async () => {
+  const client = new SignedApiClient(buildConfig({
+    tokenId: null,
+    hmacSecret: null,
+    oauthAccessToken: 'oauth-access-token',
+  }));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+
+    assert.equal(options.method, 'GET');
+    assert.equal(options.body, undefined);
+    assert.match(
+      String(url),
+      /agent-control-plane\/agents\/agent-1\/memory-branches\?projection_id=projection-1$/,
+    );
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        agent_id: 'agent-1',
+        selected_memory_branch_id: 'memory-1',
+        memory_branches: [{
+          id: 'memory-1',
+          agent_id: 'agent-1',
+          name: 'Main',
+          selected: true,
+        }],
+      }),
+    };
+  };
+
+  try {
+    const result = await client.listMemoryBranches('agent-1', {
+      projection_id: 'projection-1',
+    });
+
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].options.headers.Authorization, 'Bearer oauth-access-token');
+    assert.equal(result.agent_id, 'agent-1');
+    assert.equal(result.memory_branches[0].id, 'memory-1');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient sends runtime health in registration and heartbeat capabilities', async () => {
   const client = new SignedApiClient(buildConfig());
   const originalFetch = globalThis.fetch;

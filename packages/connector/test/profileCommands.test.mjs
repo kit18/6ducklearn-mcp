@@ -64,6 +64,20 @@ async function startControlPlaneTestServer(handler) {
   };
 }
 
+async function captureConsoleLog(fn) {
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (...args) => {
+    lines.push(args.map((arg) => String(arg)).join(' '));
+  };
+  try {
+    await fn();
+  } finally {
+    console.log = originalLog;
+  }
+  return lines.join('\n');
+}
+
 test('profile propose rejects active agent credentials that do not match local profile metadata', async () => {
   const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-command-'));
   const restoreEnv = withConnectorEnv({
@@ -429,6 +443,139 @@ test('profile switch prepares handoff, syncs target projection, and keeps local-
         '/functions/v1/agent-control-plane/projections/projection-target/sync/pull',
         '/functions/v1/agent-control-plane/projections/projection-target/sync/sync-target/ack',
       ],
+    );
+  } finally {
+    await server.close();
+    restoreEnv();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('profile branches lists redacted memory branches without mutating local metadata', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), '6ducklearn-profile-command-'));
+  const requests = [];
+  const restoreEnv = withConnectorEnv({
+    SIXDUCK_AGENT_ID: 'agent-local',
+    SIXDUCK_DEVICE_ID: 'device-1',
+    SIXDUCK_OAUTH_ACCESS_TOKEN: 'oauth-access-token',
+    SIXDUCK_RUNTIME_TYPE: 'codex',
+    SIXDUCK_TOKEN_ID: 'token-branch-list',
+  });
+
+  const server = await startControlPlaneTestServer(async (req, res) => {
+    const body = await readJsonBody(req);
+    requests.push({ method: req.method, url: req.url, body });
+
+    if (req.url === '/functions/v1/agent-control-plane/agents/agent-local/memory-branches?projection_id=projection-branch') {
+      assert.equal(req.method, 'GET');
+      sendJson(res, 200, {
+        agent_id: 'agent-local',
+        selected_memory_branch_id: 'memory-target',
+        memory_branches: [
+          {
+            id: 'memory-target',
+            agent_id: 'agent-local',
+            name: 'Asia thesis',
+            status: 'active',
+            selected: true,
+            allow_evolve: false,
+            source_memory_branch_id: 'memory-source',
+            source_kind: 'fork',
+            updated_at: '2026-06-28T00:00:00Z',
+            content: 'SECRET memory content',
+            source_profile_hash: 'SECRET_HASH',
+            fork_note: 'SECRET fork note',
+            token_id: 'SECRET_TOKEN',
+            local_path_hint: '/Users/alice/private',
+          },
+          {
+            id: 'memory-source',
+            agent_id: 'agent-local',
+            name: 'Main',
+            status: 'active',
+            selected: false,
+            allow_evolve: true,
+            updated_at: '2026-06-27T00:00:00Z',
+          },
+        ],
+      });
+      return;
+    }
+
+    sendJson(res, 404, { error: { message: `Unexpected route ${req.url}` } });
+  });
+
+  process.env.SIXDUCK_SUPABASE_URL = server.baseUrl;
+
+  try {
+    applyLocalProfileProjection({
+      profileName: 'Research Analyst',
+      runtimeType: 'codex',
+      baseDir: tempDir,
+      pullResult: {
+        projection: {
+          id: 'projection-branch',
+          agent_id: 'agent-local',
+          connection_id: 'connection-1',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          status: 'active',
+        },
+        sync: {
+          id: 'sync-branch',
+          status: 'pending',
+          result_profile_hash: 'branch-hash',
+        },
+        runtime_projection: {
+          agent_id: 'agent-local',
+          runtime_type: 'codex',
+          local_profile_key: 'codex:research-analyst',
+          system_prompt: 'You are a research analyst.',
+          projection_metadata: {
+            agent_profile_id: 'agent-local',
+            role_archetype: 'researcher',
+            strategy_pack_key: null,
+            skill_pack_keys: [],
+            memory_branch_id: 'memory-target',
+            memory_profile_ids: ['memory-target'],
+            runtime_type: 'codex',
+          },
+          memory_branch: {
+            id: 'memory-target',
+            name: 'Asia thesis',
+            source_memory_branch_id: 'memory-source',
+            source_kind: 'fork',
+          },
+          skill_packs: [],
+        },
+        skipped_locks: [],
+      },
+    });
+    const metadataPath = join(tempDir, 'research-analyst', '.6ducklearn', 'profile-sync.json');
+    const beforeMetadata = readFileSync(metadataPath, 'utf8');
+
+    const output = await captureConsoleLog(() =>
+      runProfileCommand([
+        'profile',
+        'branches',
+        '--profile',
+        'research-analyst',
+        '--runtime',
+        'codex',
+        '--base-dir',
+        tempDir,
+      ])
+    );
+    const afterMetadata = readFileSync(metadataPath, 'utf8');
+
+    assert.equal(beforeMetadata, afterMetadata);
+    assert.match(output, /\* memory-target \| Asia thesis \| active \| evolve:off \| source:fork:memory-source/);
+    assert.match(output, /  memory-source \| Main \| active \| evolve:on/);
+    assert.equal(output.includes('SECRET'), false);
+    assert.equal(output.includes('/Users/alice/private'), false);
+    assert.deepEqual(
+      requests.map((request) => `${request.method} ${request.url}`),
+      ['GET /functions/v1/agent-control-plane/agents/agent-local/memory-branches?projection_id=projection-branch'],
     );
   } finally {
     await server.close();

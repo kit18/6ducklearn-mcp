@@ -343,6 +343,13 @@ export interface ForkMemoryBranchResult {
   invariants?: Record<string, unknown>;
 }
 
+export interface ListMemoryBranchesResult {
+  agent_id: string;
+  selected_memory_branch_id?: string | null;
+  memory_branches: AgentMemoryBranch[];
+  invariants?: Record<string, unknown>;
+}
+
 export interface ThreadRunProvenance {
   source: 'agent_console';
   thread_id: string;

@@ -6,6 +6,7 @@ import type {
   ConsolePushEvent,
   ForkMemoryBranchInput,
   ForkMemoryBranchResult,
+  ListMemoryBranchesResult,
   LocalProfileProjection,
   PendingApprovalStatus,
   PlaybookMemoryProposalRequest,
@@ -231,6 +232,21 @@ export class SignedApiClient {
     return this.controlPlaneJson<ForkMemoryBranchResult>(
       `/agents/${encodeURIComponent(agentId)}/memory-branches/${encodeURIComponent(sourceMemoryBranchId)}/fork`,
       { method: 'POST', body: input },
+    );
+  }
+
+  listMemoryBranches(
+    agentId: string,
+    filters: {
+      projection_id?: string | null;
+    } = {},
+  ): Promise<ListMemoryBranchesResult> {
+    const search = new URLSearchParams();
+    if (filters.projection_id) search.set('projection_id', filters.projection_id);
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return this.controlPlaneJson<ListMemoryBranchesResult>(
+      `/agents/${encodeURIComponent(agentId)}/memory-branches${suffix}`,
+      { method: 'GET' },
     );
   }
 

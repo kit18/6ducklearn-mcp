@@ -57,6 +57,19 @@ node packages/connector/dist/index.js profile sync --profile research-analyst
 
 Profile Sync binds the local profile key, pulls approved config and unlocked skill packs, writes `config.yaml`, `SYSTEM_PROMPT.md`, `skills/6ducklearn/*/SKILL.md`, and `.6ducklearn/profile-sync.json`, then acknowledges the sync hash back to 6DuckLearn. Canonical memory is not pulled into local files; local learning must return as reviewable memory proposals.
 
+List redacted memory branches before choosing a branch:
+
+```bash
+SIXDUCK_SUPABASE_URL=<your-6ducklearn-supabase-functions-url> \
+SIXDUCK_RUNTIME_TYPE=hermes \
+SIXDUCK_AGENT_ID=<agent_id> \
+node packages/connector/dist/index.js profile branches --profile research-analyst
+```
+
+`profile branches` and `profile branch list` are read-only. They show branch
+ids, names, selected state, evolution setting, source lineage, and update time
+without downloading raw canonical memory content.
+
 Fork a memory branch for a separate direction:
 
 ```bash

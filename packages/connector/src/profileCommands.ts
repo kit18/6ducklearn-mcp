@@ -10,7 +10,7 @@ import {
   resolveLocalProfilePaths,
 } from './localProfile.js';
 import { SignedApiClient } from './signedApiClient.js';
-import type { RuntimeType } from './types.js';
+import type { AgentMemoryBranch, RuntimeType } from './types.js';
 
 interface ProfileCommandOptions {
   profile?: string;
@@ -37,6 +37,8 @@ function usage(): string {
     'Usage:',
     '  6ducklearn-connector profile create <profile_name> [--runtime codex|hermes] [--base-dir <path>]',
     '  6ducklearn-connector profile sync --profile <profile_name> [--runtime codex|hermes] [--agent-id <agent_id>] [--memory-branch <branch_id>] [--base-dir <path>]',
+    '  6ducklearn-connector profile branches --profile <profile_name> [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
+    '  6ducklearn-connector profile branch list --profile <profile_name> [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
     '  6ducklearn-connector profile branch --profile <profile_name> --source-memory-branch <branch_id> [--branch-name <name>] [--fork-note <text>] [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
     '  6ducklearn-connector profile propose --profile <profile_name> --memory <text> [--reason <text>] [--runtime codex|hermes] [--agent-id <agent_id>] [--base-dir <path>]',
     '  6ducklearn-connector profile switch --profile <profile_name> --from-runtime codex|hermes --to-runtime codex|hermes [--handoff-note <text>] [--agent-id <agent_id>] [--source-base-dir <path>] [--target-base-dir <path>]',
@@ -167,6 +169,24 @@ function resolveMemoryProposal(options: ProfileCommandOptions): {
   };
 }
 
+function branchText(value: unknown, fallback = '-'): string {
+  return typeof value === 'string' && value.trim() ? value.trim() : fallback;
+}
+
+function formatMemoryBranchLine(branch: AgentMemoryBranch, localSelectedMemoryBranchId: string | null): string {
+  const branchId = branchText(branch.id);
+  const selected = branch.selected === true || Boolean(localSelectedMemoryBranchId && branch.id === localSelectedMemoryBranchId);
+  const name = branchText(branch.name, '(unnamed)');
+  const status = branchText(branch.status, branch.deleted_at ? 'deleted' : 'active');
+  const evolve = branch.allow_evolve === false ? 'off' : 'on';
+  const sourceKind = branchText(branch.source_kind, 'source');
+  const source = branch.source_memory_branch_id
+    ? `${sourceKind}:${branch.source_memory_branch_id}`
+    : '-';
+  const updatedAt = branchText(branch.updated_at);
+  return `${selected ? '*' : ' '} ${branchId} | ${name} | ${status} | evolve:${evolve} | source:${source} | updated:${updatedAt}`;
+}
+
 async function runCreate(args: string[]): Promise<void> {
   const options = parseOptions(args);
   const runtimeType = resolveRuntime(options);
@@ -235,6 +255,55 @@ async function runSync(args: string[]): Promise<void> {
     console.log(`[6ducklearn-connector] Skipped locked skills: ${applied.skippedLocks.map((lock) => lock.skill_key).join(', ')}`);
   }
   console.log(`[6ducklearn-connector] Profile directory: ${applied.profileDir}`);
+}
+
+async function runBranches(args: string[]): Promise<void> {
+  const options = parseOptions(args);
+  const runtimeType = resolveRuntime(options);
+  applyRuntimeEnv(runtimeType);
+  const profileName = resolveProfileOption(options);
+  let local: ReturnType<typeof readLocalProfileSyncMetadata> | null = null;
+  try {
+    local = readLocalProfileSyncMetadata({
+      profileName,
+      runtimeType,
+      baseDir: options.baseDir,
+    });
+  } catch (error) {
+    if (!(error instanceof Error)) throw error;
+  }
+  const config = loadConfig();
+  const metadataAgentId = local ? metadataString(local.metadata, 'agent_id') : null;
+  const metadataProjectionId = local ? metadataString(local.metadata, 'projection_id') : null;
+  const metadataMemoryBranchId = local ? metadataString(local.metadata, 'memory_branch_id') : null;
+  if (!local && !options.agentId && !config.oauthAgentId && !process.env.SIXDUCK_AGENT_ID && !process.env.DUCK_AGENT_ID) {
+    throw new Error(
+      `Profile branches requires a synced local profile or --agent-id.\n${usage()}`,
+    );
+  }
+  const agentId = resolveAgentId(options, config.oauthAgentId ?? metadataAgentId);
+  if (metadataAgentId) assertLocalProfileAgentBoundary(metadataAgentId, agentId, 'listing memory branches');
+  const client = new SignedApiClient(config);
+  const result = await client.listMemoryBranches(agentId, {
+    projection_id: metadataProjectionId,
+  });
+  const branches = Array.isArray(result.memory_branches) ? result.memory_branches : [];
+
+  console.log(`[6ducklearn-connector] Memory branches for Agent ID: ${result.agent_id || agentId}`);
+  if (metadataProjectionId) console.log(`[6ducklearn-connector] Projection ID: ${metadataProjectionId}`);
+  if (branches.length === 0) {
+    console.log('[6ducklearn-connector] No memory branches found.');
+    return;
+  }
+
+  for (const branch of branches) {
+    console.log(formatMemoryBranchLine(branch, metadataMemoryBranchId));
+  }
+
+  if (metadataMemoryBranchId && !branches.some((branch) => branch.id === metadataMemoryBranchId)) {
+    console.log(`[6ducklearn-connector] Local selected memory branch was not returned by the control plane: ${metadataMemoryBranchId}`);
+  }
+  console.log('[6ducklearn-connector] Canonical memory content was not downloaded.');
 }
 
 async function runPropose(args: string[]): Promise<void> {
@@ -511,6 +580,14 @@ export async function runProfileCommand(argv = process.argv.slice(2)): Promise<v
     }
     if (subcommand === 'sync') {
       await runSync(argv.slice(2));
+      return;
+    }
+    if (subcommand === 'branches' || subcommand === 'list-branches') {
+      await runBranches(argv.slice(2));
+      return;
+    }
+    if (subcommand === 'branch' && argv[2] === 'list') {
+      await runBranches(argv.slice(3));
       return;
     }
     if (subcommand === 'propose') {
