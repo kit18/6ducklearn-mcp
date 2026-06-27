@@ -1,12 +1,16 @@
 import { createHmac } from 'node:crypto';
 import type {
+  AckLocalProfileProjectionSyncResult,
+  BindLocalProfileProjectionInput,
   ConnectorConfig,
   ConsolePushEvent,
+  LocalProfileProjection,
   PendingApprovalStatus,
   PlaybookMemoryProposalRequest,
   PlaybookPermissionRequest,
   PlaybookRuntimeEnvelope,
   PlaybookRuntimeEventRequest,
+  PullLocalProfileProjectionResult,
   PulledTurnPayload,
   RuntimeConnectionRecord,
   SpawnExpertRequest,
@@ -121,6 +125,53 @@ export class SignedApiClient {
 
   pullTurn(connectionId: string): Promise<{ ok: true } & PulledTurnPayload> {
     return this.postJson<{ ok: true } & PulledTurnPayload>('console-pull', { connection_id: connectionId });
+  }
+
+  listLocalProfileProjections(
+    agentId: string,
+    filters: {
+      runtime_type?: string;
+      connection_id?: string;
+      local_profile_key?: string;
+    } = {},
+  ): Promise<{ projections: LocalProfileProjection[] }> {
+    const search = new URLSearchParams();
+    if (filters.runtime_type) search.set('runtime_type', filters.runtime_type);
+    if (filters.connection_id) search.set('connection_id', filters.connection_id);
+    if (filters.local_profile_key) search.set('local_profile_key', filters.local_profile_key);
+    const suffix = search.toString() ? `?${search.toString()}` : '';
+    return this.controlPlaneJson<{ projections: LocalProfileProjection[] }>(
+      `/agents/${encodeURIComponent(agentId)}/projections${suffix}`,
+      { method: 'GET' },
+    );
+  }
+
+  bindLocalProfileProjection(
+    agentId: string,
+    input: BindLocalProfileProjectionInput,
+  ): Promise<{ projection: LocalProfileProjection }> {
+    return this.controlPlaneJson<{ projection: LocalProfileProjection }>(
+      `/agents/${encodeURIComponent(agentId)}/projections`,
+      { method: 'POST', body: input },
+    );
+  }
+
+  pullLocalProfileProjection(projectionId: string): Promise<PullLocalProfileProjectionResult> {
+    return this.controlPlaneJson<PullLocalProfileProjectionResult>(
+      `/projections/${encodeURIComponent(projectionId)}/sync/pull`,
+      { method: 'POST', body: { trigger_kind: 'manual' } },
+    );
+  }
+
+  ackLocalProfileProjectionSync(
+    projectionId: string,
+    syncId: string,
+    profileHash: string,
+  ): Promise<AckLocalProfileProjectionSyncResult> {
+    return this.controlPlaneJson<AckLocalProfileProjectionSyncResult>(
+      `/projections/${encodeURIComponent(projectionId)}/sync/${encodeURIComponent(syncId)}/ack`,
+      { method: 'POST', body: { profile_hash: profileHash } },
+    );
   }
 
   async push(params: {
@@ -279,14 +330,40 @@ export class SignedApiClient {
     functionName: string,
     body: Record<string, unknown>,
   ): Promise<TResponse> {
-    const bodyText = JSON.stringify(body);
+    return this.requestJson<TResponse>(
+      `${this.config.supabaseUrl}/functions/v1/${functionName}`,
+      functionName,
+      'POST',
+      body,
+    );
+  }
+
+  private async controlPlaneJson<TResponse>(
+    path: string,
+    options: { method: 'GET' | 'POST' | 'PATCH'; body?: object },
+  ): Promise<TResponse> {
+    return this.requestJson<TResponse>(
+      `${this.config.supabaseUrl}/functions/v1/agent-control-plane${path}`,
+      `agent-control-plane${path}`,
+      options.method,
+      options.body,
+    );
+  }
+
+  private async requestJson<TResponse>(
+    url: string,
+    requestName: string,
+    method: 'GET' | 'POST' | 'PATCH',
+    body?: object,
+  ): Promise<TResponse> {
+    const bodyText = body ? JSON.stringify(body) : '';
     await this.refreshOAuthTokenIfNeeded(false);
-    let response = await this.fetchWithAuth(functionName, bodyText);
+    let response = await this.fetchWithAuth(url, method, bodyText, Boolean(body));
 
     if (response.status === 401 && this.config.oauthAccessToken && this.config.oauthRefreshToken) {
       const refreshed = await this.refreshOAuthTokenIfNeeded(true);
       if (refreshed) {
-        response = await this.fetchWithAuth(functionName, bodyText);
+        response = await this.fetchWithAuth(url, method, bodyText, Boolean(body));
       }
     }
 
@@ -306,7 +383,7 @@ export class SignedApiClient {
           ? (parsed.error as { message?: string })
           : null;
       const error = new Error(
-        parsedError?.message || `Signed API request failed: ${functionName} (${response.status})`,
+        parsedError?.message || `Signed API request failed: ${requestName} (${response.status})`,
       ) as ApiError;
       error.status = response.status;
       error.rawBody = rawText;
@@ -316,10 +393,15 @@ export class SignedApiClient {
     return parsed as TResponse;
   }
 
-  private async fetchWithAuth(functionName: string, bodyText: string): Promise<Response> {
+  private async fetchWithAuth(
+    url: string,
+    method: 'GET' | 'POST' | 'PATCH',
+    bodyText: string,
+    hasBody: boolean,
+  ): Promise<Response> {
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
     };
+    if (hasBody) headers['Content-Type'] = 'application/json';
 
     if (this.config.oauthAccessToken) {
       headers.Authorization = `Bearer ${this.config.oauthAccessToken}`;
@@ -335,10 +417,10 @@ export class SignedApiClient {
       headers['x-agent-signature'] = `t=${timestamp},v1=${signature}`;
     }
 
-    return fetch(`${this.config.supabaseUrl}/functions/v1/${functionName}`, {
-      method: 'POST',
+    return fetch(url, {
+      method,
       headers,
-      body: bodyText,
+      ...(hasBody ? { body: bodyText } : {}),
     });
   }
 

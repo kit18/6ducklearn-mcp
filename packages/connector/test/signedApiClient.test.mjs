@@ -103,6 +103,98 @@ test('SignedApiClient can authenticate connector calls with an OAuth access toke
   }
 });
 
+test('SignedApiClient calls Local Profile Projection control-plane routes with OAuth', async () => {
+  const client = new SignedApiClient(buildConfig({
+    tokenId: null,
+    hmacSecret: null,
+    oauthAccessToken: 'oauth-access-token',
+  }));
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
+    const parsedUrl = new URL(String(url));
+    const rawBody = typeof options.body === 'string' ? options.body : '{}';
+    const body = JSON.parse(rawBody);
+
+    if (parsedUrl.pathname.endsWith('/agent-control-plane/agents/agent-1/projections')) {
+      assert.equal(options.method, 'POST');
+      assert.equal(body.local_profile_key, 'hermes:research');
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          projection: {
+            id: 'projection-1',
+            agent_id: 'agent-1',
+            connection_id: body.connection_id,
+            runtime_type: 'hermes',
+            local_profile_key: body.local_profile_key,
+            status: 'active',
+          },
+        }),
+      };
+    }
+
+    if (parsedUrl.pathname.endsWith('/agent-control-plane/projections/projection-1/sync/pull')) {
+      assert.equal(options.method, 'POST');
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          projection: { id: 'projection-1' },
+          sync: { id: 'sync-1', result_profile_hash: 'hash-1' },
+          runtime_projection: {
+            agent_id: 'agent-1',
+            runtime_type: 'hermes',
+            local_profile_key: 'hermes:research',
+            skill_packs: [],
+          },
+          skipped_locks: [],
+        }),
+      };
+    }
+
+    if (parsedUrl.pathname.endsWith('/agent-control-plane/projections/projection-1/sync/sync-1/ack')) {
+      assert.equal(options.method, 'POST');
+      assert.equal(body.profile_hash, 'hash-1');
+      return {
+        ok: true,
+        status: 200,
+        text: async () => JSON.stringify({
+          projection: { id: 'projection-1', last_profile_hash: 'hash-1' },
+          sync: { id: 'sync-1', status: 'succeeded' },
+        }),
+      };
+    }
+
+    throw new Error(`Unexpected URL: ${url}`);
+  };
+
+  try {
+    const bind = await client.bindLocalProfileProjection('agent-1', {
+      runtime_type: 'hermes',
+      local_profile_key: 'hermes:research',
+      token_id: 'token-1',
+      connection_id: 'connection-1',
+      sync_policy: { mode: 'manual' },
+    });
+    const pull = await client.pullLocalProfileProjection(bind.projection.id);
+    const ack = await client.ackLocalProfileProjectionSync(
+      bind.projection.id,
+      pull.sync.id,
+      pull.sync.result_profile_hash,
+    );
+
+    assert.equal(requests.length, 3);
+    assert.ok(requests.every((request) => request.options.headers.Authorization === 'Bearer oauth-access-token'));
+    assert.equal(ack.sync.status, 'succeeded');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('SignedApiClient refreshes an expiring OAuth token before connector calls', async () => {
   const client = new SignedApiClient(buildConfig({
     tokenId: null,
