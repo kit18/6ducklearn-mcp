@@ -55,6 +55,13 @@ test('OpenClawGatewayClient reports local beta capabilities', () => {
       session_sync: true,
       remote_access: false,
     },
+    run_graph: {
+      child_run_dispatch: 'unsupported',
+      child_run_events: 'summary_result_only',
+      child_interrupt: true,
+      child_join: 'control_plane',
+      native_child_mapping: 'unsupported',
+    },
     gateway_url: config.openclaw.gatewayUrl,
     session_key: config.openclaw.sessionKey,
     auth_mode: 'none',

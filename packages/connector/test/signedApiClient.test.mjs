@@ -774,6 +774,13 @@ test('SignedApiClient registers Hermes connections with Hermes capability metada
     assert.equal(body.capabilities.protocol, 'hermes-api-server');
     assert.equal(body.capabilities.features.interrupt, false);
     assert.equal(body.capabilities.features.approvals, false);
+    assert.deepEqual(body.capabilities.run_graph, {
+      child_run_dispatch: 'unsupported',
+      child_run_events: 'summary_result_only',
+      child_interrupt: false,
+      child_join: 'control_plane',
+      native_child_mapping: 'unsupported',
+    });
     assert.equal(body.capabilities.base_url, 'http://127.0.0.1:2468');
     assert.equal(body.capabilities.conversation_prefix, '6ducklearn');
   } finally {

@@ -89,6 +89,13 @@ test('CodexAppServerClient reports the expected Codex capabilities', () => {
       session_sync: true,
       remote_access: false,
     },
+    run_graph: {
+      child_run_dispatch: 'codex_app_server_thread_turn',
+      child_run_events: 'summary_result_only',
+      child_interrupt: true,
+      child_join: 'control_plane',
+      native_child_mapping: 'unsupported',
+    },
     cwd: config.codex.cwd,
     model: config.codex.model,
   });

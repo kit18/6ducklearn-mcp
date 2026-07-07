@@ -176,6 +176,13 @@ export class OpenClawGatewayClient implements RuntimeAdapter {
         session_sync: true,
         remote_access: this.isRemoteGateway(),
       },
+      run_graph: {
+        child_run_dispatch: 'unsupported',
+        child_run_events: 'summary_result_only',
+        child_interrupt: true,
+        child_join: 'control_plane',
+        native_child_mapping: 'unsupported',
+      },
       gateway_url: this.config.openclaw.gatewayUrl,
       session_key: this.config.openclaw.sessionKey,
       auth_mode: this.config.openclaw.gatewayToken ? 'token' : this.config.openclaw.gatewayPassword ? 'password' : 'none',

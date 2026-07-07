@@ -1,5 +1,14 @@
 export type RuntimeType = 'codex' | 'openclaw' | 'hermes';
 
+export interface RunGraphCapabilities {
+  child_run_dispatch?: string;
+  child_run_events?: string;
+  child_interrupt?: boolean;
+  child_join?: string;
+  native_child_mapping?: string;
+  [key: string]: unknown;
+}
+
 export interface RuntimeCapabilities {
   schema_version: string;
   runtime: RuntimeType;
@@ -19,6 +28,7 @@ export interface RuntimeCapabilities {
     session_sync: boolean;
     remote_access: boolean;
   };
+  run_graph?: RunGraphCapabilities;
   [key: string]: unknown;
 }
 

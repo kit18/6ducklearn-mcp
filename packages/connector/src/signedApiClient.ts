@@ -49,6 +49,16 @@ function isRetryablePushError(error: unknown): error is ApiError {
   return true;
 }
 
+function buildRunGraphCapabilities(runtimeType: ConnectorConfig['runtimeType'], interrupt: boolean) {
+  return {
+    child_run_dispatch: runtimeType === 'codex' ? 'codex_app_server_thread_turn' : 'unsupported',
+    child_run_events: 'summary_result_only',
+    child_interrupt: interrupt,
+    child_join: 'control_plane',
+    native_child_mapping: 'unsupported',
+  };
+}
+
 function buildCapabilities(config: ConnectorConfig): RuntimeCapabilities {
   if (config.runtimeType === 'openclaw') {
     return {
@@ -63,6 +73,7 @@ function buildCapabilities(config: ConnectorConfig): RuntimeCapabilities {
         session_sync: true,
         remote_access: false,
       },
+      run_graph: buildRunGraphCapabilities('openclaw', true),
       gateway_url: config.openclaw.gatewayUrl,
       session_key: config.openclaw.sessionKey,
     };
@@ -81,6 +92,7 @@ function buildCapabilities(config: ConnectorConfig): RuntimeCapabilities {
         session_sync: true,
         remote_access: false,
       },
+      run_graph: buildRunGraphCapabilities('hermes', false),
       base_url: config.hermes.baseUrl || undefined,
       conversation_prefix: config.hermes.conversationPrefix,
     };
@@ -98,6 +110,7 @@ function buildCapabilities(config: ConnectorConfig): RuntimeCapabilities {
       session_sync: true,
       remote_access: false,
     },
+    run_graph: buildRunGraphCapabilities('codex', true),
     cwd: config.codex.cwd,
     model: config.codex.model,
   };

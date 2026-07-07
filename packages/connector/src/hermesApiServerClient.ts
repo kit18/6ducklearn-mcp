@@ -293,6 +293,13 @@ export class HermesApiServerClient implements RuntimeAdapter {
         session_sync: true,
         remote_access: false,
       },
+      run_graph: {
+        child_run_dispatch: 'unsupported',
+        child_run_events: 'summary_result_only',
+        child_interrupt: false,
+        child_join: 'control_plane',
+        native_child_mapping: 'unsupported',
+      },
       base_url: this.normalizeApiBaseUrl().toString().replace(/\/$/, ''),
       conversation_prefix: this.config.hermes.conversationPrefix,
       ...(this.discoveredModelName ? { model: this.discoveredModelName } : {}),
