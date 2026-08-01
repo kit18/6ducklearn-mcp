@@ -27,18 +27,20 @@ If a matching, authenticated `6ducklearn` hosted entry already exists, the setup
 
 Manual fallback:
 
-```bash
-codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write
-```
-
-Only if an existing `6ducklearn` entry points to a different URL or transport, remove it first with `codex mcp remove 6ducklearn`.
-
-If you configure Codex manually and OAuth discovery is challenged by the hosting edge, add this block to `~/.codex/config.toml` before login:
+Do not use `codex mcp add` for this fallback: current Codex versions can start OAuth immediately from that command, before explicit scopes are supplied. Instead, only if an existing `6ducklearn` entry points to a different URL or transport, remove it with `codex mcp remove 6ducklearn`. Then add this block to `~/.codex/config.toml`:
 
 ```toml
+[mcp_servers.6ducklearn]
+url = "https://6ducklearn.com/mcp"
+
 [mcp_servers.6ducklearn.http_headers]
 User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+```
+
+Start only the explicitly scoped login:
+
+```bash
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
 
 ### Claude Code

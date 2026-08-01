@@ -3,7 +3,7 @@
   "name": "com.6ducklearn/mcp",
   "title": "6DuckLearn MCP",
   "description": "Connect agents to 6DuckLearn memory, approvals, and runtime control.",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "websiteUrl": "https://6ducklearn.com",
   "icons": [
     {
