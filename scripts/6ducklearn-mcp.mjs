@@ -81,9 +81,16 @@ function spawnCodexSync(args, options) {
     : spawnSync('codex', args, options);
 }
 
-function codexIsAvailable() {
+function assertCodexAvailable() {
   const result = spawnCodexSync(['--version'], { stdio: 'ignore' });
-  return !result.error && result.status === 0 && !result.signal;
+  if (result.error?.code === 'ENOENT') {
+    throw new Error('Codex CLI was not found on PATH. Install or open Codex with CLI support, then rerun this setup command.');
+  }
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`Codex CLI version check was terminated by ${result.signal}`);
+  if (result.status !== 0) {
+    throw new Error(`Codex CLI version check failed with exit code ${result.status ?? 'unknown'}`);
+  }
 }
 
 function runCommand(command) {
@@ -102,12 +109,32 @@ function runCommand(command) {
   }
 }
 
+function isRecognizedCodexServer(server, name) {
+  if (!server || typeof server !== 'object' || Array.isArray(server)) return false;
+  if (typeof server.name === 'string' && server.name !== name) return false;
+  if (
+    server.transport
+    && typeof server.transport === 'object'
+    && !Array.isArray(server.transport)
+  ) {
+    return server.transport.type === 'streamable_http'
+      && typeof server.transport.url === 'string'
+      && server.transport.url.length > 0;
+  }
+  return server.transport === 'streamable_http'
+    && typeof server.url === 'string'
+    && server.url.length > 0;
+}
+
 function parseCodexServerList(rawText, name) {
   const servers = JSON.parse(rawText);
   if (!Array.isArray(servers)) {
     throw new Error('Codex returned an unfamiliar MCP list response');
   }
   const server = servers.find((candidate) => candidate?.name === name);
+  if (server && !isRecognizedCodexServer(server, name)) {
+    throw new Error('Codex returned an unfamiliar MCP server schema');
+  }
   return server
     ? { status: 'found', server }
     : { status: 'missing', server: null };
@@ -133,7 +160,7 @@ function readCodexServer(name) {
   if (!getResult.error && getResult.status === 0) {
     try {
       const server = JSON.parse(getResult.stdout);
-      if (server && typeof server === 'object' && !Array.isArray(server)) {
+      if (isRecognizedCodexServer(server, name)) {
         return { status: 'found', server };
       }
     } catch {
@@ -306,11 +333,7 @@ ${noLogin ? '# OAuth login skipped because --no-login was set.' : `# Run only th
     return;
   }
 
-  if (!codexIsAvailable()) {
-    console.error('Codex CLI was not found on PATH.');
-    console.error('Install or open Codex with CLI support, then rerun this setup command.');
-    process.exit(127);
-  }
+  assertCodexAvailable();
 
   const inspection = readCodexServer(name);
   if (inspection.status === 'failed') {
@@ -382,6 +405,7 @@ export {
   codexServerMatches,
   hostedServerConfigBlock,
   isDirectExecution,
+  isRecognizedCodexServer,
   readCodexServer,
   shouldRunCodexOAuthLogin,
   withUserAgentHeader,

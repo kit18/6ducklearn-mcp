@@ -17,6 +17,7 @@ import {
   codexOAuthState,
   codexSetupResultMessage,
   codexServerMatches,
+  isRecognizedCodexServer,
   shouldRunCodexOAuthLogin,
   withUserAgentHeader,
 } from '../../../scripts/6ducklearn-mcp.mjs';
@@ -54,6 +55,10 @@ if (args[0] === 'mcp' && args[1] === 'list' && args[2] === '--json') {
     console.log('{}');
     process.exit(0);
   }
+  if (process.env.FAKE_CODEX_LIST_SCHEMA === 'changed_transport') {
+    console.log(JSON.stringify([{ name: '6ducklearn', transport: { kind: 'streamable_http', endpoint: 'https://6ducklearn.com/mcp' } }]));
+    process.exit(0);
+  }
   const text = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
   const table = '[mcp_servers.6ducklearn]';
   const start = text.indexOf(table);
@@ -64,6 +69,10 @@ if (args[0] === 'mcp' && args[1] === 'list' && args[2] === '--json') {
   const section = text.slice(start);
   const url = section.match(/^url\\s*=\\s*"([^"]+)"/m)?.[1] ?? '';
   console.log(JSON.stringify([{ name: '6ducklearn', transport: { type: 'streamable_http', url }, auth_status: process.env.FAKE_CODEX_AUTH_STATUS ?? 'not_logged_in' }]));
+  process.exit(0);
+}
+if (args[0] === 'mcp' && args[1] === 'get' && process.env.FAKE_CODEX_GET_SCHEMA === 'object') {
+  console.log('{}');
   process.exit(0);
 }
 if (args[0] === 'mcp' && args[1] === 'remove') {
@@ -115,7 +124,7 @@ test('public Codex setup requests only hosted MCP scopes', () => {
   assert.doesNotMatch(output, /codex mcp add/);
 });
 
-test('package bin executes through a symlink', () => {
+test('package bin executes through a symlink', { skip: process.platform === 'win32' }, () => {
   const root = mkdtempSync(path.join(tmpdir(), '6ducklearn-bin-'));
   const linkedBin = path.join(root, '6ducklearn-mcp');
   symlinkSync(setupScript, linkedBin);
@@ -179,6 +188,9 @@ test('matching Codex configuration and compatibility header are idempotent', () 
   assert.equal(codexOAuthState({ ...server, auth_status: 'o_auth' }), 'ready');
   assert.equal(codexOAuthState({ ...server, auth_status: 'not_logged_in' }), 'not-ready');
   assert.equal(codexOAuthState({ ...server, auth_status: 'changed_schema' }), 'unknown');
+  assert.equal(isRecognizedCodexServer({ ...server, name: '6ducklearn' }, '6ducklearn'), true);
+  assert.equal(isRecognizedCodexServer({ name: '6ducklearn', transport: { kind: 'streamable_http', endpoint: 'https://6ducklearn.com/mcp' } }, '6ducklearn'), false);
+  assert.equal(isRecognizedCodexServer({}, '6ducklearn'), false);
   assert.equal(shouldRunCodexOAuthLogin({ ...server, auth_status: 'o_auth' }, 'https://6ducklearn.com/mcp', false), false);
   assert.equal(shouldRunCodexOAuthLogin({ ...server, auth_status: 'not_logged_in' }, 'https://6ducklearn.com/mcp', false), true);
   assert.equal(shouldRunCodexOAuthLogin(server, 'https://example.com/mcp', false), true);
@@ -232,6 +244,28 @@ test('unfamiliar inspection schema is fail-closed', () => {
   });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /No changes were made/);
+  assert.doesNotMatch(readFileSync(fake.logPath, 'utf8'), /"remove"|"add"|"login"/);
+});
+
+test('a changed found-server schema is fail-closed without removing the entry', () => {
+  const fake = createFakeCodex();
+  const configPath = path.join(fake.codexHome, 'config.toml');
+  const original = '[mcp_servers.6ducklearn]\nurl = "https://6ducklearn.com/mcp"\n';
+  writeFileSync(configPath, original);
+  const result = spawnSync(process.execPath, [setupScript, 'setup-codex'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: fake.codexHome,
+      FAKE_CODEX_LOG: fake.logPath,
+      FAKE_CODEX_LIST_SCHEMA: 'changed_transport',
+      FAKE_CODEX_GET_SCHEMA: 'object',
+      SIXDUCK_CODEX_NODE_SHIM: path.join(fake.root, 'bin', 'codex'),
+    },
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /No changes were made/);
+  assert.equal(readFileSync(configPath, 'utf8'), original);
   assert.doesNotMatch(readFileSync(fake.logPath, 'utf8'), /"remove"|"add"|"login"/);
 });
 

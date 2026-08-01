@@ -27,7 +27,11 @@ If a matching, authenticated `6ducklearn` hosted entry already exists, the setup
 
 Manual fallback:
 
-Do not use `codex mcp add` for this fallback: current Codex versions can start OAuth immediately from that command, before explicit scopes are supplied. Instead, only if an existing `6ducklearn` entry points to a different URL or transport, remove it with `codex mcp remove 6ducklearn`. Then add this block to `~/.codex/config.toml`:
+Do not use `codex mcp add` for this fallback: current Codex versions can start OAuth immediately from that command, before explicit scopes are supplied. Inspect the entry first with `codex mcp get 6ducklearn --json`:
+
+- If it is missing, add the full block below to `~/.codex/config.toml`.
+- If it already uses the URL below, keep its server table and add only the missing `http_headers` table.
+- If it uses another URL or transport, run `codex mcp remove 6ducklearn`, then add the full block.
 
 ```toml
 [mcp_servers.6ducklearn]
