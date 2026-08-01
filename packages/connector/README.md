@@ -1,14 +1,15 @@
 # 6DuckLearn Connector
 
-Local runtime bridge for users connecting a local agent runtime to the hosted 6DuckLearn Agent Console.
+AI Runtime Connector for users who want 6DuckLearn Agent Console to send work to Codex, OpenClaw, or Hermes.
 
-Use the hosted MCP server first when your client supports HTTP MCP with OAuth:
+If your goal is to use 6DuckLearn tools inside Codex, use Hosted MCP instead:
 
 ```bash
-codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write,runtime:connect,control:read,control:write,policy:read,approval:request,approval:decide
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
+
+Only if an existing `6ducklearn` entry points to a different URL or transport, remove it first with `codex mcp remove 6ducklearn`.
 
 If installing manually, add the hosted OAuth compatibility header to `~/.codex/config.toml` before login:
 

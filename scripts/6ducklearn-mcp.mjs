@@ -4,18 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const DEFAULT_NAME = '6ducklearn';
 const DEFAULT_URL = 'https://6ducklearn.com/mcp';
 const DEFAULT_CODEX_OAUTH_SCOPES = [
   'mcp:read',
   'mcp:write',
-  'runtime:connect',
-  'control:read',
-  'control:write',
-  'policy:read',
-  'approval:request',
-  'approval:decide',
 ];
 const CODEX_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
@@ -32,8 +27,9 @@ Examples:
   6ducklearn-mcp setup-codex --dry-run
   6ducklearn-mcp setup-codex --name 6ducklearn --url https://6ducklearn.com/mcp
 
-The setup command refreshes an existing Codex entry with the same name before
-adding the hosted MCP endpoint and its Codex HTTP compatibility header.
+The setup command inspects an existing Codex entry first. It keeps a matching
+hosted endpoint, replaces a different entry, and ensures the Codex HTTP
+compatibility header without creating duplicate configuration.
 `);
 }
 
@@ -90,6 +86,57 @@ function commandSucceeds(command) {
   const [bin, ...args] = command;
   const result = spawnSync(bin, args, { stdio: 'ignore' });
   return !result.error && result.status === 0;
+}
+
+function readCodexServer(name) {
+  const listResult = spawnSync('codex', ['mcp', 'list', '--json'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (!listResult.error && listResult.status === 0) {
+    try {
+      const servers = JSON.parse(listResult.stdout);
+      if (Array.isArray(servers)) {
+        return servers.find((server) => server?.name === name) ?? null;
+      }
+    } catch {
+      // Fall back to `mcp get` for Codex versions without JSON list output.
+    }
+  }
+
+  const getResult = spawnSync('codex', ['mcp', 'get', name, '--json'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  if (getResult.error || getResult.status !== 0) return null;
+  try {
+    return JSON.parse(getResult.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function codexServerMatches(server, url) {
+  return server?.transport?.type === 'streamable_http'
+    && server.transport.url === url;
+}
+
+function codexOAuthIsReady(server) {
+  return server?.auth_status === 'o_auth' || server?.auth_status === 'oauth';
+}
+
+function shouldRunCodexOAuthLogin(server, url, noLogin) {
+  return !noLogin && !(codexServerMatches(server, url) && codexOAuthIsReady(server));
+}
+
+function codexSetupResultMessage({ serverMatches, oauthReady, noLogin }) {
+  if (serverMatches && oauthReady) {
+    return 'Hosted 6DuckLearn MCP is already connected in Codex. No changes were needed.';
+  }
+  if (noLogin) {
+    return 'Hosted 6DuckLearn MCP is configured in Codex. OAuth login was skipped because --no-login was set.';
+  }
+  return 'Hosted 6DuckLearn MCP is connected in Codex. Open a new Codex chat to load the approved tools.';
 }
 
 function manualCommands(commands) {
@@ -171,9 +218,14 @@ function setupCodex(args) {
   }
 
   if (dryRun) {
-    console.log(`# Refresh an existing entry if one is already configured:
-${commandText(removeCommand)} # ignore if missing
-${manualCommands(commands)}
+    console.log(`# Inspect the existing entry first:
+${commandText(['codex', 'mcp', 'get', name, '--json'])}
+
+# Keep an existing streamable HTTP entry when its URL already matches.
+# Only replace a missing or different entry with:
+${commandText(removeCommand)} # only when a different entry exists
+${commandText(commands[0])}
+${noLogin ? '' : `# Run OAuth only when Codex does not report auth_status=o_auth:\n${commandText(commands[1])}`}
 
 # Ensure Codex sends a browser-compatible user agent to hosted OAuth/MCP endpoints:
 # ${headersTableName(name)}
@@ -188,18 +240,21 @@ ${manualCommands(commands)}
     process.exit(127);
   }
 
-  if (commandSucceeds(['codex', 'mcp', 'get', name])) {
-    runCommand(removeCommand);
-  }
-
-  for (const command of commands) {
-    runCommand(command);
-    if (command[1] === 'mcp' && command[2] === 'add') {
-      ensureCodexUserAgentHeader(name);
+  const existingServer = readCodexServer(name);
+  const serverMatches = codexServerMatches(existingServer, url);
+  const oauthReady = serverMatches && codexOAuthIsReady(existingServer);
+  const shouldLogin = shouldRunCodexOAuthLogin(existingServer, url, noLogin);
+  if (!serverMatches) {
+    if (existingServer || commandSucceeds(['codex', 'mcp', 'get', name])) {
+      runCommand(removeCommand);
     }
+    runCommand(commands[0]);
   }
+  ensureCodexUserAgentHeader(name);
 
-  console.log(`Configured hosted 6DuckLearn MCP as ${name}.`);
+  if (shouldLogin) runCommand(commands[1]);
+
+  console.log(codexSetupResultMessage({ serverMatches, oauthReady, noLogin }));
 }
 
 function main() {
@@ -218,9 +273,19 @@ function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-try {
-  main();
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  try {
+    main();
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
 }
+
+export {
+  codexOAuthIsReady,
+  codexSetupResultMessage,
+  codexServerMatches,
+  shouldRunCodexOAuthLogin,
+  withUserAgentHeader,
+};
