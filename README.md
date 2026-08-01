@@ -21,14 +21,14 @@ npx github:kit18/6ducklearn-mcp setup-codex
 ```
 
 This configures the hosted 6DuckLearn MCP server in local Codex, adds the hosted OAuth compatibility header, and starts the OAuth login flow.
-If a `6ducklearn` entry already exists, the setup command refreshes it first so old local or stdio bridge settings do not linger.
+If a matching, authenticated `6ducklearn` hosted entry already exists, the setup command keeps it in place and does not reopen OAuth. A different local or stdio entry is replaced, while a matching but signed-out entry resumes OAuth, so repeated setup stays deterministic without creating duplicates.
 
 Manual fallback:
 
 ```bash
 codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write,runtime:connect,control:read,control:write,policy:read,approval:request,approval:decide
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
 
 If you configure Codex manually and OAuth discovery is challenged by the hosting edge, add this block to `~/.codex/config.toml` before login:
@@ -59,7 +59,7 @@ The npm packages `@6ducklearn/mcp` and `@6ducklearn/connector` are not published
 - OAuth discovery: `https://6ducklearn.com/.well-known/oauth-authorization-server`
 - protected resource metadata: `https://6ducklearn.com/.well-known/oauth-protected-resource/mcp`
 
-The setup helper asks Codex for the full supported MCP OAuth bundle up front so the consent page can offer lower permission levels. Users can approve a smaller set during OAuth, and 6DuckLearn role/payment-tier caps can block unavailable scopes. Write-capable and sensitive actions remain controlled by 6DuckLearn runtime policy and user approval.
+The public Codex helper requests only `mcp:read` and `mcp:write`. Control-plane access and local-runtime authorization use separate, explicitly named flows; the public hosted-MCP setup never requests `approval:decide`. Write-capable and sensitive actions remain controlled by 6DuckLearn runtime policy and user approval.
 
 ## What Agents Can Do
 
