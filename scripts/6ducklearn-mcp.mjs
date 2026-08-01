@@ -117,13 +117,26 @@ function isRecognizedCodexServer(server, name) {
     && typeof server.transport === 'object'
     && !Array.isArray(server.transport)
   ) {
-    return server.transport.type === 'streamable_http'
-      && typeof server.transport.url === 'string'
-      && server.transport.url.length > 0;
+    if (server.transport.type === 'streamable_http') {
+      return typeof server.transport.url === 'string'
+        && server.transport.url.length > 0;
+    }
+    if (server.transport.type === 'stdio') {
+      return typeof server.transport.command === 'string'
+        && server.transport.command.length > 0
+        && (server.transport.args === undefined || Array.isArray(server.transport.args));
+    }
+    return false;
   }
-  return server.transport === 'streamable_http'
-    && typeof server.url === 'string'
-    && server.url.length > 0;
+  if (server.transport === 'streamable_http') {
+    return typeof server.url === 'string' && server.url.length > 0;
+  }
+  if (server.transport === 'stdio') {
+    return typeof server.command === 'string'
+      && server.command.length > 0
+      && (server.args === undefined || Array.isArray(server.args));
+  }
+  return false;
 }
 
 function parseCodexServerList(rawText, name) {

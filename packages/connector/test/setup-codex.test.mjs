@@ -60,6 +60,10 @@ if (args[0] === 'mcp' && args[1] === 'list' && args[2] === '--json') {
     process.exit(0);
   }
   const text = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
+  if (process.env.FAKE_CODEX_LIST_SCHEMA === 'stdio' && /^command\\s*=/m.test(text)) {
+    console.log(JSON.stringify([{ name: '6ducklearn', transport: { type: 'stdio', command: 'npx', args: ['old-connector'] }, auth_status: 'unsupported' }]));
+    process.exit(0);
+  }
   const table = '[mcp_servers.6ducklearn]';
   const start = text.indexOf(table);
   if (start === -1) {
@@ -189,6 +193,7 @@ test('matching Codex configuration and compatibility header are idempotent', () 
   assert.equal(codexOAuthState({ ...server, auth_status: 'not_logged_in' }), 'not-ready');
   assert.equal(codexOAuthState({ ...server, auth_status: 'changed_schema' }), 'unknown');
   assert.equal(isRecognizedCodexServer({ ...server, name: '6ducklearn' }, '6ducklearn'), true);
+  assert.equal(isRecognizedCodexServer({ name: '6ducklearn', transport: { type: 'stdio', command: 'npx', args: ['old-connector'] } }, '6ducklearn'), true);
   assert.equal(isRecognizedCodexServer({ name: '6ducklearn', transport: { kind: 'streamable_http', endpoint: 'https://6ducklearn.com/mcp' } }, '6ducklearn'), false);
   assert.equal(isRecognizedCodexServer({}, '6ducklearn'), false);
   assert.equal(shouldRunCodexOAuthLogin({ ...server, auth_status: 'o_auth' }, 'https://6ducklearn.com/mcp', false), false);
@@ -267,6 +272,27 @@ test('a changed found-server schema is fail-closed without removing the entry', 
   assert.match(result.stderr, /No changes were made/);
   assert.equal(readFileSync(configPath, 'utf8'), original);
   assert.doesNotMatch(readFileSync(fake.logPath, 'utf8'), /"remove"|"add"|"login"/);
+});
+
+test('a recognized legacy stdio entry is deliberately replaced with hosted HTTP', () => {
+  const fake = createFakeCodex();
+  const configPath = path.join(fake.codexHome, 'config.toml');
+  writeFileSync(configPath, '[mcp_servers.6ducklearn]\ncommand = "npx"\nargs = ["old-connector"]\n');
+  const result = spawnSync(process.execPath, [setupScript, 'setup-codex'], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CODEX_HOME: fake.codexHome,
+      FAKE_CODEX_LOG: fake.logPath,
+      FAKE_CODEX_LIST_SCHEMA: 'stdio',
+      SIXDUCK_CODEX_NODE_SHIM: path.join(fake.root, 'bin', 'codex'),
+    },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const calls = readFileSync(fake.logPath, 'utf8');
+  assert.match(calls, /\["mcp","remove","6ducklearn"\]/);
+  assert.doesNotMatch(calls, /"add"/);
+  assert.match(readFileSync(configPath, 'utf8'), /url = "https:\/\/6ducklearn\.com\/mcp"/);
 });
 
 test('Codex setup reports connected, unchanged, and no-login states truthfully', () => {
