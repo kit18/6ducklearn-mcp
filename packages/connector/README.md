@@ -4,18 +4,20 @@ AI Runtime Connector for users who want 6DuckLearn Agent Console to send work to
 
 If your goal is to use 6DuckLearn tools inside Codex, use Hosted MCP instead:
 
-```bash
-codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write
-```
-
-Only if an existing `6ducklearn` entry points to a different URL or transport, remove it first with `codex mcp remove 6ducklearn`.
-
-If installing manually, add the hosted OAuth compatibility header to `~/.codex/config.toml` before login:
+Do not use `codex mcp add` for manual setup because current Codex versions can begin OAuth before explicit scopes are supplied. Inspect first with `codex mcp get 6ducklearn --json`: add the full block below when the entry is missing; for a matching entry, keep its server table and add only the missing `http_headers` table; for a different URL or transport, remove it with `codex mcp remove 6ducklearn` and then add the full block.
 
 ```toml
+[mcp_servers.6ducklearn]
+url = "https://6ducklearn.com/mcp"
+
 [mcp_servers.6ducklearn.http_headers]
 User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+```
+
+Start only the explicitly scoped login:
+
+```bash
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
 
 Use this connector only when you need 6DuckLearn to coordinate a local runtime such as Codex, OpenClaw, or Hermes. For normal hosted MCP setup from GitHub, run:

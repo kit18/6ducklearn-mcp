@@ -1,7 +1,15 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -66,54 +74,122 @@ function assertNoUnknownOptions(args) {
   }
 }
 
-function codexIsAvailable() {
-  const result = spawnSync('codex', ['--version'], { stdio: 'ignore' });
-  return !result.error || result.error.code !== 'ENOENT';
+function spawnCodexSync(args, options) {
+  const nodeShim = process.env.SIXDUCK_CODEX_NODE_SHIM;
+  return nodeShim
+    ? spawnSync(process.execPath, [nodeShim, ...args], options)
+    : spawnSync('codex', args, options);
+}
+
+function assertCodexAvailable() {
+  const result = spawnCodexSync(['--version'], { stdio: 'ignore' });
+  if (result.error?.code === 'ENOENT') {
+    throw new Error('Codex CLI was not found on PATH. Install or open Codex with CLI support, then rerun this setup command.');
+  }
+  if (result.error) throw result.error;
+  if (result.signal) throw new Error(`Codex CLI version check was terminated by ${result.signal}`);
+  if (result.status !== 0) {
+    throw new Error(`Codex CLI version check failed with exit code ${result.status ?? 'unknown'}`);
+  }
 }
 
 function runCommand(command) {
   const [bin, ...args] = command;
-  const result = spawnSync(bin, args, { stdio: 'inherit' });
+  const result = bin === 'codex'
+    ? spawnCodexSync(args, { stdio: 'inherit' })
+    : spawnSync(bin, args, { stdio: 'inherit' });
   if (result.error) {
     throw result.error;
   }
-  if (typeof result.status === 'number' && result.status !== 0) {
-    process.exit(result.status);
+  if (result.signal) {
+    throw new Error(`${commandText(command)} was terminated by ${result.signal}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`${commandText(command)} failed with exit code ${result.status ?? 'unknown'}`);
   }
 }
 
-function commandSucceeds(command) {
-  const [bin, ...args] = command;
-  const result = spawnSync(bin, args, { stdio: 'ignore' });
-  return !result.error && result.status === 0;
+function isRecognizedCodexServer(server, name) {
+  if (!server || typeof server !== 'object' || Array.isArray(server)) return false;
+  if (typeof server.name === 'string' && server.name !== name) return false;
+  if (
+    server.transport
+    && typeof server.transport === 'object'
+    && !Array.isArray(server.transport)
+  ) {
+    if (server.transport.type === 'streamable_http') {
+      return typeof server.transport.url === 'string'
+        && server.transport.url.length > 0;
+    }
+    if (server.transport.type === 'stdio') {
+      return typeof server.transport.command === 'string'
+        && server.transport.command.length > 0
+        && (server.transport.args === undefined || Array.isArray(server.transport.args));
+    }
+    return false;
+  }
+  if (server.transport === 'streamable_http') {
+    return typeof server.url === 'string' && server.url.length > 0;
+  }
+  if (server.transport === 'stdio') {
+    return typeof server.command === 'string'
+      && server.command.length > 0
+      && (server.args === undefined || Array.isArray(server.args));
+  }
+  return false;
+}
+
+function parseCodexServerList(rawText, name) {
+  const servers = JSON.parse(rawText);
+  if (!Array.isArray(servers)) {
+    throw new Error('Codex returned an unfamiliar MCP list response');
+  }
+  const server = servers.find((candidate) => candidate?.name === name);
+  if (server && !isRecognizedCodexServer(server, name)) {
+    throw new Error('Codex returned an unfamiliar MCP server schema');
+  }
+  return server
+    ? { status: 'found', server }
+    : { status: 'missing', server: null };
 }
 
 function readCodexServer(name) {
-  const listResult = spawnSync('codex', ['mcp', 'list', '--json'], {
+  const listResult = spawnCodexSync(['mcp', 'list', '--json'], {
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'ignore'],
   });
   if (!listResult.error && listResult.status === 0) {
     try {
-      const servers = JSON.parse(listResult.stdout);
-      if (Array.isArray(servers)) {
-        return servers.find((server) => server?.name === name) ?? null;
-      }
+      return parseCodexServerList(listResult.stdout, name);
     } catch {
       // Fall back to `mcp get` for Codex versions without JSON list output.
     }
   }
 
-  const getResult = spawnSync('codex', ['mcp', 'get', name, '--json'], {
+  const getResult = spawnCodexSync(['mcp', 'get', name, '--json'], {
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
-  if (getResult.error || getResult.status !== 0) return null;
-  try {
-    return JSON.parse(getResult.stdout);
-  } catch {
-    return null;
+  if (!getResult.error && getResult.status === 0) {
+    try {
+      const server = JSON.parse(getResult.stdout);
+      if (isRecognizedCodexServer(server, name)) {
+        return { status: 'found', server };
+      }
+    } catch {
+      // Fall through to a conservative inspection failure.
+    }
   }
+
+  const failureText = `${getResult.stdout ?? ''}\n${getResult.stderr ?? ''}`;
+  if (!getResult.error && /not found|does not exist|no MCP server/i.test(failureText)) {
+    return { status: 'missing', server: null };
+  }
+  return {
+    status: 'failed',
+    server: null,
+    reason: getResult.error?.message || failureText.trim() || 'Codex MCP inspection failed',
+  };
 }
 
 function codexServerMatches(server, url) {
@@ -125,27 +201,47 @@ function codexOAuthIsReady(server) {
   return server?.auth_status === 'o_auth' || server?.auth_status === 'oauth';
 }
 
+function codexOAuthState(server) {
+  if (codexOAuthIsReady(server)) return 'ready';
+  if (server?.auth_status === 'not_logged_in') return 'not-ready';
+  return 'unknown';
+}
+
 function shouldRunCodexOAuthLogin(server, url, noLogin) {
   return !noLogin && !(codexServerMatches(server, url) && codexOAuthIsReady(server));
 }
 
 function codexSetupResultMessage({ serverMatches, oauthReady, noLogin }) {
-  if (serverMatches && oauthReady) {
-    return 'Hosted 6DuckLearn MCP is already connected in Codex. No changes were needed.';
-  }
   if (noLogin) {
     return 'Hosted 6DuckLearn MCP is configured in Codex. OAuth login was skipped because --no-login was set.';
   }
+  if (serverMatches && oauthReady) {
+    return 'Hosted 6DuckLearn MCP is already connected in Codex. No changes were needed.';
+  }
   return 'Hosted 6DuckLearn MCP is connected in Codex. Open a new Codex chat to load the approved tools.';
-}
-
-function manualCommands(commands) {
-  return commands.map(commandText).join('\n');
 }
 
 function codexConfigPath() {
   const codexHome = process.env.CODEX_HOME || path.join(homedir(), '.codex');
   return path.join(codexHome, 'config.toml');
+}
+
+function assertSafeServerName(name) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) {
+    throw new Error('--name must contain only letters, numbers, underscores, or hyphens');
+  }
+}
+
+function assertSupportedServerUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('--url must be a valid HTTP or HTTPS URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('--url must use HTTP or HTTPS');
+  }
 }
 
 function serverTableName(name) {
@@ -158,6 +254,32 @@ function headersTableName(name) {
 
 function userAgentLine() {
   return `User-Agent = ${JSON.stringify(CODEX_USER_AGENT)}`;
+}
+
+function hostedServerConfigBlock(name, url) {
+  return `${serverTableName(name)}\nurl = ${JSON.stringify(url)}\n\n${headersTableName(name)}\n${userAgentLine()}\n`;
+}
+
+function writeCodexConfigAtomically(configPath, text) {
+  const directory = path.dirname(configPath);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  const mode = existsSync(configPath) ? statSync(configPath).mode & 0o777 : 0o600;
+  const temporaryPath = `${configPath}.6ducklearn-${process.pid}.tmp`;
+  writeFileSync(temporaryPath, text, { mode });
+  renameSync(temporaryPath, configPath);
+}
+
+function configureCodexHostedServer(name, url) {
+  const configPath = codexConfigPath();
+  const current = existsSync(configPath) ? readFileSync(configPath, 'utf8') : '';
+  if (current.split(/\r?\n/).some((line) => line.trim() === serverTableName(name))) {
+    throw new Error(`Codex config still contains ${serverTableName(name)}; no replacement was written`);
+  }
+  const separator = current.trim().length > 0 ? '\n\n' : '';
+  writeCodexConfigAtomically(
+    configPath,
+    `${current.trimEnd()}${separator}${hostedServerConfigBlock(name, url)}`,
+  );
 }
 
 function withUserAgentHeader(text, name) {
@@ -191,7 +313,7 @@ function ensureCodexUserAgentHeader(name) {
 
   const current = readFileSync(configPath, 'utf8');
   const next = withUserAgentHeader(current, name);
-  if (next !== current) writeFileSync(configPath, next);
+  if (next !== current) writeCodexConfigAtomically(configPath, next);
 }
 
 function setupCodex(args) {
@@ -199,60 +321,58 @@ function setupCodex(args) {
 
   const name = readOption(args, '--name', DEFAULT_NAME);
   const url = readOption(args, '--url', DEFAULT_URL);
+  assertSafeServerName(name);
+  assertSupportedServerUrl(url);
   const noLogin = hasFlag(args, '--no-login');
   const dryRun = hasFlag(args, '--dry-run');
   const removeCommand = ['codex', 'mcp', 'remove', name];
-  const commands = [
-    ['codex', 'mcp', 'add', name, '--url', url],
+  const loginCommand = [
+    'codex',
+    'mcp',
+    'login',
+    name,
+    '--scopes',
+    DEFAULT_CODEX_OAUTH_SCOPES.join(','),
   ];
-
-  if (!noLogin) {
-    commands.push([
-      'codex',
-      'mcp',
-      'login',
-      name,
-      '--scopes',
-      DEFAULT_CODEX_OAUTH_SCOPES.join(','),
-    ]);
-  }
 
   if (dryRun) {
     console.log(`# Inspect the existing entry first:
 ${commandText(['codex', 'mcp', 'get', name, '--json'])}
 
 # Keep an existing streamable HTTP entry when its URL already matches.
-# Only replace a missing or different entry with:
-${commandText(removeCommand)} # only when a different entry exists
-${commandText(commands[0])}
-${noLogin ? '' : `# Run OAuth only when Codex does not report auth_status=o_auth:\n${commandText(commands[1])}`}
-
-# Ensure Codex sends a browser-compatible user agent to hosted OAuth/MCP endpoints:
-# ${headersTableName(name)}
-# ${userAgentLine()}`);
+# The helper writes this config directly so "mcp add" cannot start an unscoped OAuth request:
+${hostedServerConfigBlock(name, url)}
+${noLogin ? '# OAuth login skipped because --no-login was set.' : `# Run only the explicitly scoped OAuth login:\n${commandText(loginCommand)}`}`);
     return;
   }
 
-  if (!codexIsAvailable()) {
-    console.error('Codex CLI was not found on PATH.');
-    console.error('Install or open Codex with CLI support, then run:');
-    console.error(manualCommands(commands));
-    process.exit(127);
-  }
+  assertCodexAvailable();
 
-  const existingServer = readCodexServer(name);
+  const inspection = readCodexServer(name);
+  if (inspection.status === 'failed') {
+    throw new Error(`Unable to inspect the existing Codex MCP entry. No changes were made. ${inspection.reason}`);
+  }
+  const existingServer = inspection.server;
   const serverMatches = codexServerMatches(existingServer, url);
-  const oauthReady = serverMatches && codexOAuthIsReady(existingServer);
+  const oauthState = serverMatches ? codexOAuthState(existingServer) : 'not-ready';
+  if (serverMatches && oauthState === 'unknown' && !noLogin) {
+    throw new Error('Codex did not report a recognized OAuth status. No OAuth login was started; update Codex and rerun setup.');
+  }
+  const oauthReady = serverMatches && oauthState === 'ready';
   const shouldLogin = shouldRunCodexOAuthLogin(existingServer, url, noLogin);
   if (!serverMatches) {
-    if (existingServer || commandSucceeds(['codex', 'mcp', 'get', name])) {
+    if (inspection.status === 'found') {
       runCommand(removeCommand);
     }
-    runCommand(commands[0]);
+    configureCodexHostedServer(name, url);
+    const configured = readCodexServer(name);
+    if (configured.status !== 'found' || !codexServerMatches(configured.server, url)) {
+      throw new Error('Codex did not recognize the hosted MCP configuration; OAuth was not started');
+    }
   }
   ensureCodexUserAgentHeader(name);
 
-  if (shouldLogin) runCommand(commands[1]);
+  if (shouldLogin) runCommand(loginCommand);
 
   console.log(codexSetupResultMessage({ serverMatches, oauthReady, noLogin }));
 }
@@ -273,7 +393,16 @@ function main() {
   throw new Error(`Unknown command: ${command}`);
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+function isDirectExecution() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isDirectExecution()) {
   try {
     main();
   } catch (error) {
@@ -284,8 +413,13 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
 export {
   codexOAuthIsReady,
+  codexOAuthState,
   codexSetupResultMessage,
   codexServerMatches,
+  hostedServerConfigBlock,
+  isDirectExecution,
+  isRecognizedCodexServer,
+  readCodexServer,
   shouldRunCodexOAuthLogin,
   withUserAgentHeader,
 };
