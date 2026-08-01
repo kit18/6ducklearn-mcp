@@ -1,6 +1,8 @@
 # 6DuckLearn MCP
 
-Official public setup docs, registry metadata, and local connector package for the hosted 6DuckLearn MCP server.
+Official public setup docs, registry metadata, and local connector package for 6DuckLearn integrations.
+
+This repository contains two separate integrations: Hosted MCP lets Codex use 6DuckLearn tools; the AI Runtime Connector lets Agent Console send work to Codex, Hermes, or OpenClaw.
 
 Use `6ducklearn` as the local client key in Codex or Claude Code. The official MCP Registry name is `com.6ducklearn/mcp`, and the hosted endpoint is:
 
@@ -26,10 +28,11 @@ If a matching, authenticated `6ducklearn` hosted entry already exists, the setup
 Manual fallback:
 
 ```bash
-codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
+
+Only if an existing `6ducklearn` entry points to a different URL or transport, remove it first with `codex mcp remove 6ducklearn`.
 
 If you configure Codex manually and OAuth discovery is challenged by the hosting edge, add this block to `~/.codex/config.toml` before login:
 
@@ -69,9 +72,9 @@ For the full public catalog, see [MCP tool use cases](./docs/tool-use-cases.md).
 
 Finance-related capabilities are for research, organization, summaries, alerts, and user-authorized workflows. 6DuckLearn MCP is not an order-routing service or source of investment recommendations.
 
-## Advanced: Local Runtime Connector
+## Advanced: AI Runtime Connector
 
-The connector is for users who want a local runtime bridge between 6DuckLearn and local agents such as Codex, OpenClaw, or Hermes. The preferred setup path is OAuth from the 6DuckLearn web app.
+The connector is for users who want a local runtime bridge between 6DuckLearn and AI runtimes such as Codex, OpenClaw, or Hermes. The preferred setup path is OAuth from the 6DuckLearn web app.
 
 ```bash
 npm install

@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import {
   codexOAuthIsReady,
+  codexSetupResultMessage,
   codexServerMatches,
   shouldRunCodexOAuthLogin,
   withUserAgentHeader,
@@ -48,4 +49,19 @@ test('matching Codex configuration and compatibility header are idempotent', () 
   assert.equal(twice, once);
   assert.equal(twice.match(/\[mcp_servers\.6ducklearn\.http_headers\]/g)?.length, 1);
   assert.equal(twice.match(/^User-Agent =/gm)?.length, 1);
+});
+
+test('Codex setup reports connected, unchanged, and no-login states truthfully', () => {
+  assert.equal(
+    codexSetupResultMessage({ serverMatches: true, oauthReady: true, noLogin: false }),
+    'Hosted 6DuckLearn MCP is already connected in Codex. No changes were needed.',
+  );
+  assert.equal(
+    codexSetupResultMessage({ serverMatches: false, oauthReady: false, noLogin: false }),
+    'Hosted 6DuckLearn MCP is connected in Codex. Open a new Codex chat to load the approved tools.',
+  );
+  assert.equal(
+    codexSetupResultMessage({ serverMatches: true, oauthReady: false, noLogin: true }),
+    'Hosted 6DuckLearn MCP is configured in Codex. OAuth login was skipped because --no-login was set.',
+  );
 });

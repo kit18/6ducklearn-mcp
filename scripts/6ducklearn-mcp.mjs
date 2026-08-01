@@ -129,6 +129,16 @@ function shouldRunCodexOAuthLogin(server, url, noLogin) {
   return !noLogin && !(codexServerMatches(server, url) && codexOAuthIsReady(server));
 }
 
+function codexSetupResultMessage({ serverMatches, oauthReady, noLogin }) {
+  if (serverMatches && oauthReady) {
+    return 'Hosted 6DuckLearn MCP is already connected in Codex. No changes were needed.';
+  }
+  if (noLogin) {
+    return 'Hosted 6DuckLearn MCP is configured in Codex. OAuth login was skipped because --no-login was set.';
+  }
+  return 'Hosted 6DuckLearn MCP is connected in Codex. Open a new Codex chat to load the approved tools.';
+}
+
 function manualCommands(commands) {
   return commands.map(commandText).join('\n');
 }
@@ -244,13 +254,7 @@ ${noLogin ? '' : `# Run OAuth only when Codex does not report auth_status=o_auth
 
   if (shouldLogin) runCommand(commands[1]);
 
-  if (serverMatches && oauthReady) {
-    console.log(`Hosted 6DuckLearn MCP ${name} was already configured and authenticated.`);
-  } else if (serverMatches) {
-    console.log(`Hosted 6DuckLearn MCP ${name} was already configured; OAuth login is ready.`);
-  } else {
-    console.log(`Configured hosted 6DuckLearn MCP as ${name}.`);
-  }
+  console.log(codexSetupResultMessage({ serverMatches, oauthReady, noLogin }));
 }
 
 function main() {
@@ -280,6 +284,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
 export {
   codexOAuthIsReady,
+  codexSetupResultMessage,
   codexServerMatches,
   shouldRunCodexOAuthLogin,
   withUserAgentHeader,

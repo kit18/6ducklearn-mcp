@@ -9,10 +9,11 @@ npx github:kit18/6ducklearn-mcp setup-codex
 Manual fallback:
 
 ```bash
-codex mcp remove 6ducklearn # ignore if missing
 codex mcp add 6ducklearn --url https://6ducklearn.com/mcp
 codex mcp login 6ducklearn --scopes mcp:read,mcp:write
 ```
+
+Only if an existing `6ducklearn` entry points to a different URL or transport, remove it first with `codex mcp remove 6ducklearn`.
 
 If configuring manually, add the hosted OAuth compatibility header to `~/.codex/config.toml` before login:
 
