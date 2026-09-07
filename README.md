@@ -72,11 +72,27 @@ The public Codex helper requests only `mcp:read` and `mcp:write`. Control-plane 
 
 ## What Agents Can Do
 
-6DuckLearn MCP gives connected agents account-authorized workflows for research, organization, reminders, portfolio review, knowledge retrieval, canvas creation, and Skill Builder discovery.
+6DuckLearn MCP gives connected agents account-authorized workflows for research, organization, reminders, portfolio review, knowledge retrieval, canvas creation, and Skill Builder discovery. Finance research includes bounded stock-research bundles and issuer-grounded Hong Kong credit-card evaluation when those capabilities are enabled for the connected account.
 
 For the full public catalog, see [MCP tool use cases](./docs/tool-use-cases.md). The catalog describes each tool by practical use case and example prompt without exposing private schemas or backend implementation details.
 
 Finance-related capabilities are for research, organization, summaries, alerts, and user-authorized workflows. 6DuckLearn MCP is not an order-routing service or source of investment recommendations.
+
+### Finance Research Examples
+
+Ask for a stock bundle when you want the available value, timing, event, risk, saved-research, and portfolio inputs in one read-only response:
+
+```text
+Build a 90-day cached research bundle for 0700.HK. Include upcoming dates for the next 90 days, identify stale or missing evidence, and do not give trading instructions.
+```
+
+For Hong Kong credit cards, separate evidence lookup from evaluation:
+
+```text
+First show the published dining-card evidence and freshness. Then evaluate annual net value for HKD 8,000 of monthly dining spend, excluding welcome offers and disclosing every missing or unverified field.
+```
+
+`query_credit_card_catalog` never ranks cards. `recommend_credit_cards` evaluates only the currently published, source-linked catalog and may return a limited, stale, or insufficient-data status instead of a winner. Missing normalized fields remain disclosures; they are not permission to invent reward rates, eligibility, fees, or ranking evidence.
 
 ## Advanced: AI Runtime Connector
 

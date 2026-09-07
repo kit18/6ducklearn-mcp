@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 
 const root = new URL('..', import.meta.url).pathname;
 const ignoredDirs = new Set(['.git', 'node_modules', 'dist']);
-const ignoredFiles = new Set(['package-lock.json']);
+const ignoredFiles = new Set(['.git', 'package-lock.json']);
 
 const serviceRoleName = 'SUPABASE_' + 'SERVICE_' + 'ROLE_' + 'KEY';
 const serviceRoleSuffix = 'SERVICE_' + 'ROLE_KEY';
