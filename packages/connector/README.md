@@ -17,7 +17,7 @@ User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 Start only the explicitly scoped login:
 
 ```bash
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write,approval:request
 ```
 
 Use this connector only when you need 6DuckLearn to coordinate a local runtime such as Codex, OpenClaw, or Hermes. For normal hosted MCP setup from GitHub, run:

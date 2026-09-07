@@ -123,9 +123,21 @@ test('public Codex setup requests only hosted MCP scopes', () => {
     encoding: 'utf8',
   });
 
-  assert.match(output, /--scopes 'mcp:read,mcp:write'/);
-  assert.doesNotMatch(output, /approval:decide|approval:request|control:read|control:write|policy:read|runtime:connect/);
+  assert.match(output, /--scopes 'mcp:read,mcp:write,approval:request'/);
+  assert.doesNotMatch(output, /approval:decide|control:read|control:write|policy:read|runtime:connect/);
   assert.doesNotMatch(output, /codex mcp add/);
+});
+
+test('local connector OAuth defaults stay outside hosted MCP and human-decision scopes', () => {
+  const source = readFileSync(
+    path.join(repoRoot, 'packages/connector/src/oauthLogin.ts'),
+    'utf8',
+  );
+  const defaultScope = source.match(/const DEFAULT_SCOPE = \[([\s\S]*?)\]\.join\(' '\);/)?.[1] ?? '';
+
+  assert.match(defaultScope, /'runtime:connect'/);
+  assert.match(defaultScope, /'approval:request'/);
+  assert.doesNotMatch(defaultScope, /'mcp:read'|'mcp:write'|'approval:decide'/);
 });
 
 test('package bin executes through a symlink', { skip: process.platform === 'win32' }, () => {
@@ -140,7 +152,7 @@ test('setup writes config directly and starts only explicitly scoped OAuth', () 
   const { result, calls, codexHome } = runSetupWithFake();
   assert.equal(result.status, 0, result.stderr);
   assert.doesNotMatch(JSON.stringify(calls), /"add"/);
-  assert.deepEqual(calls.at(-1), ['mcp', 'login', '6ducklearn', '--scopes', 'mcp:read,mcp:write']);
+  assert.deepEqual(calls.at(-1), ['mcp', 'login', '6ducklearn', '--scopes', 'mcp:read,mcp:write,approval:request']);
   const config = readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
   assert.match(config, /\[mcp_servers\.6ducklearn\]/);
   assert.match(config, /url = "https:\/\/6ducklearn\.com\/mcp"/);
@@ -356,6 +368,6 @@ test('a matching unauthenticated entry is kept and receives only the scoped logi
   assert.equal(result.status, 0, result.stderr);
   const calls = readFileSync(fake.logPath, 'utf8');
   assert.doesNotMatch(calls, /"remove"|"add"/);
-  assert.match(calls, /\["mcp","login","6ducklearn","--scopes","mcp:read,mcp:write"\]/);
+  assert.match(calls, /\["mcp","login","6ducklearn","--scopes","mcp:read,mcp:write,approval:request"\]/);
   assert.match(readFileSync(configPath, 'utf8'), /\[mcp_servers\.6ducklearn\.http_headers\]/);
 });

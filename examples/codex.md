@@ -21,7 +21,7 @@ User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 Start only the explicitly scoped login:
 
 ```bash
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write,approval:request
 ```
 
 Check registration:
@@ -31,3 +31,5 @@ codex mcp get 6ducklearn
 ```
 
 The local Codex server key should be `6ducklearn`. The official MCP Registry name for the hosted server is `com.6ducklearn/mcp`.
+
+Protected writes return a server-issued approval ID and 6DuckLearn Inbox link. Approval records the human decision but does not execute the write. After approval, Codex calls `resume_approved_write` with only that ID; the hosted grant cannot receive `approval:decide`.

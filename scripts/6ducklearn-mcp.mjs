@@ -19,6 +19,7 @@ const DEFAULT_URL = 'https://6ducklearn.com/mcp';
 const DEFAULT_CODEX_OAUTH_SCOPES = [
   'mcp:read',
   'mcp:write',
+  'approval:request',
 ];
 const CODEX_USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36';
