@@ -11,9 +11,6 @@ const DEFAULT_SCOPE = [
   'control:write',
   'policy:read',
   'approval:request',
-  'approval:decide',
-  'mcp:read',
-  'mcp:write',
 ].join(' ');
 
 function base64Url(buffer: Buffer): string {

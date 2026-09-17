@@ -44,7 +44,7 @@ User-Agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36
 Start only the explicitly scoped login:
 
 ```bash
-codex mcp login 6ducklearn --scopes mcp:read,mcp:write
+codex mcp login 6ducklearn --scopes mcp:read,mcp:write,approval:request
 ```
 
 ### Claude Code
@@ -68,7 +68,7 @@ The npm packages `@6ducklearn/mcp` and `@6ducklearn/connector` are not published
 - OAuth discovery: `https://6ducklearn.com/.well-known/oauth-authorization-server`
 - protected resource metadata: `https://6ducklearn.com/.well-known/oauth-protected-resource/mcp`
 
-The public Codex helper requests only `mcp:read` and `mcp:write`. Control-plane access and local-runtime authorization use separate, explicitly named flows; the public hosted-MCP setup never requests `approval:decide`. Write-capable and sensitive actions remain controlled by 6DuckLearn runtime policy and user approval.
+The public Codex helper requests only `mcp:read`, `mcp:write`, and `approval:request`. Control-plane access and local-runtime authorization use separate, explicitly named flows; the hosted-MCP setup never requests `approval:decide`. A protected write is submitted to 6DuckLearn Inbox with a server-issued approval ID. The human decides there, then Codex calls `resume_approved_write` with only that ID to execute the locked request once.
 
 ## What Agents Can Do
 
